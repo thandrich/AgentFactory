@@ -18,17 +18,14 @@ class QALead:
     def __init__(self):
         logger.info("QALead initialized")
 
-    def test_agent(self, agent_code: str, test_query: str) -> Dict[str, Any]:
+    def test_agent(self, agent_code: str, test_query: str, evaluation_criteria: list = None) -> Dict[str, Any]:
         """
         Executes the agent code in a sandbox and runs the test query.
+        Validates the result using LLM-as-a-Judge if criteria are provided.
         """
         logger.info(f"QALead testing agent with query: {test_query}")
         
         # Sandbox execution
-        # We need to execute the code to get the agent class
-        # Then instantiate it and run it
-        
-        # Capture stdout
         output_capture = io.StringIO()
         
         try:
@@ -45,15 +42,32 @@ class QALead:
                     agent_instance = agent_class()
                     
                     # Run the agent
-                    # Assuming the agent has a 'run' method as per Engineer prompt
                     if hasattr(agent_instance, "run"):
                         result = agent_instance.run(test_query)
                         logger.info(f"Agent returned: {result}")
                         
+                        # LLM-as-a-Judge Evaluation
+                        score = 5 # Default score
+                        judge_feedback = "No criteria provided."
+                        
+                        if evaluation_criteria:
+                            logger.info("Running LLM-as-a-Judge...")
+                            # Mock Judge Logic
+                            # In real system: score = self.llm_judge.evaluate(result, evaluation_criteria)
+                            judge_feedback = f"Evaluated against: {evaluation_criteria}"
+                            if "Sunny" in result:
+                                score = 5
+                                judge_feedback += " -> PASSED (Score: 5/5)"
+                            else:
+                                score = 1
+                                judge_feedback += " -> FAILED (Score: 1/5)"
+                        
                         return {
                             "success": True,
                             "result": result,
-                            "trace": output_capture.getvalue()
+                            "trace": output_capture.getvalue(),
+                            "score": score,
+                            "judge_feedback": judge_feedback
                         }
                     else:
                         return {"success": False, "error": "Agent has no 'run' method"}

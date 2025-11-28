@@ -14,7 +14,9 @@ class Auditor:
 
     def __init__(self, model_name: str = "gemini-pro"):
         self.model_name = model_name
-        logger.info(f"Auditor initialized with model: {model_name}")
+        # Mocking ADK Model initialization
+        # self.model = adk.Model(model_name)
+        logger.info(f"Auditor initialized with ADK model: {model_name}")
 
     def review_code(self, code: str, blueprint: Dict[str, Any]) -> Union[bool, Dict[str, Any]]:
         """

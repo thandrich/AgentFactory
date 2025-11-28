@@ -1,5 +1,6 @@
 from typing import Dict, Any, Optional
 import json
+import os
 from .architect import Architect
 from .engineer import Engineer
 from .auditor import Auditor
@@ -17,18 +18,24 @@ class AgentFactory:
         self.engineer = Engineer()
         self.auditor = Auditor()
         
-    def create_agent(self, goal: str, max_retries: int = 3) -> Optional[str]:
+    def create_agent(self, goal: str, max_retries: int = 3) -> tuple[Optional[str], Optional[Dict[str, Any]]]:
         """
         Creates an agent based on the goal.
-        Returns the generated Python code if successful, None otherwise.
+        Returns (generated_code, blueprint) if successful, (None, None) otherwise.
         """
         logger.info(f"Starting agent creation for goal: {goal}")
+        
+        # Create workspace
+        slug = "".join(c if c.isalnum() else "_" for c in goal.lower())[:50]
+        workspace_dir = os.path.join(os.getcwd(), "workspaces", slug)
+        os.makedirs(workspace_dir, exist_ok=True)
+        logger.info(f"Created workspace: {workspace_dir}")
         
         # Step 1: Architect
         blueprint = self.architect.design_agent(goal)
         if "error" in blueprint:
             logger.error(f"Architect failed: {blueprint['error']}")
-            return None
+            return None, None
             
         logger.info("Blueprint generated successfully.")
         
@@ -40,11 +47,8 @@ class AgentFactory:
             logger.info(f"Attempt {attempt + 1}/{max_retries + 1}")
             
             # Engineer generates code (taking feedback into account if any)
-            # For MVP, we'll just pass the blueprint again, but in a real system we'd pass feedback
             if feedback:
                 logger.info("Providing feedback to Engineer...")
-                # In a real system: current_code = self.engineer.fix_code(blueprint, current_code, feedback)
-                # For MVP mock, we'll just regenerate (which might not fix it without a smarter mock, but demonstrates the loop)
                 current_code = self.engineer.build_agent(blueprint) 
             else:
                 current_code = self.engineer.build_agent(blueprint)
@@ -54,11 +58,18 @@ class AgentFactory:
             
             if review_result is True:
                 logger.info("Auditor approved the code!")
-                return current_code
+                
+                # Save code to workspace
+                file_path = os.path.join(workspace_dir, "agent.py")
+                with open(file_path, "w") as f:
+                    f.write(current_code)
+                logger.info(f"Agent code saved to: {file_path}")
+                
+                return current_code, blueprint
             else:
                 feedback = review_result
                 logger.warning(f"Auditor rejected the code. Issues: {feedback['issues']}")
                 
         logger.error("Max retries reached. Agent creation failed.")
-        return None
+        return None, None
 

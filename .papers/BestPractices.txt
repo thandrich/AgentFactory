@@ -1,0 +1,126 @@
+Agentic Coding Best Practices: A Project Reference
+This guide summarizes key architectural patterns, tooling strategies, and operational disciplines for building production-grade AI agents using the Agent Development Kit (ADK).
+
+I. Core Agent Architecture
+Shift from "bricklaying" logic to "directing" autonomous actors.
+
+Decouple Logic from State: Design agents as stateless services. State (session history, working memory) must be externalized to a durable store (e.g., Redis, Firestore, or ADK's managed Session service) to enable horizontal scaling.
+
+Adopt the 5-Step Loop: Structure your agent's core execution loop around: Mission (Goal) → Scene (Context) → Think (Plan) → Act (Tool Use) → Observe (Result).
+
+Use Specialized Agents: Avoid monolithic "super-agents." Decompose complex workflows into a team of specialized sub-agents (e.g., a "Research Agent" delegating to a "Writer Agent").
+
+Code Pattern: Basic ADK Agent Definition
+Define a clear persona and available tools. Use specific instructions to bound behavior.
+
+Python
+
+from google.adk.agents import Agent
+from google.adk.models.google_llm import Gemini
+
+# Define a specialized agent
+research_agent = Agent(
+    name="research_specialist",
+    model=Gemini(model="gemini-2.5-flash"),
+    description="Researches topics using available search tools.",
+    instruction="""
+    You are a research specialist. 
+    1. Analyze the user's query to identify key entities.
+    2. Use the 'search_tool' to find factual information.
+    3. Summarize findings into bullet points.
+    """,
+    tools=[search_tool] # defined elsewhere
+)
+II. Tooling & Interoperability
+Tools are the "hands" of your agent. Tools should encapsulate tasks, not just APIs.
+
+Describe Actions, Not Implementations: Tool docstrings are part of the prompt. Describe what the tool achieves and when to use it, rather than just technical API details.
+
+Granularity: Keep tools focused. Instead of a generic update_database, prefer update_shipping_address(order_id, new_address).
+
+Standardize with MCP: Use the Model Context Protocol (MCP) for connecting to external data and systems. This decouples tool implementation from the agent.
+
+Code Pattern: Robust Tool Definition
+Include detailed docstrings, type hints, and Pydantic models for validation.
+
+Python
+
+def get_order_status(order_id: str) -> dict:
+    """
+    Retrieves the current shipping status of a customer order.
+    
+    Args:
+        order_id: The alphanumeric ID of the order (e.g., 'ORD-123').
+        
+    Returns:
+        A dictionary containing 'status', 'delivery_date', and 'carrier'.
+    """
+    # ... implementation fetching from database ...
+    return {"status": "shipped", "delivery_date": "2023-10-25"}
+III. Context Engineering (Sessions & Memory)
+Manage the context window as a scarce resource.
+
+Session vs. Memory: * Session: The immediate, high-fidelity log of the current conversation.
+
+Memory: The consolidated, long-term knowledge store (user preferences, facts) persisted across sessions.
+
+Compaction Strategies: Never let session history grow indefinitely. Implement strategies like Token-Based Truncation (keep last N tokens) or Recursive Summarization (summarize old turns) to prevent context rot and reduce costs.
+
+Asynchronous Memory: Decouple memory generation. Trigger extraction/consolidation jobs in the background after a response is sent to avoid blocking the user.
+
+Code Pattern: Context Filtering (Compaction)
+Use plugins or middleware to trim history before sending it to the model.
+
+Python
+
+from google.adk.plugins.context_filter_plugin import ContextFilterPlugin
+
+# Automatically keep only the last 10 turns to manage context window
+context_plugin = ContextFilterPlugin(num_invocations_to_keep=10)
+
+agent = Agent(
+    # ... config ...
+    plugins=[context_plugin]
+)
+IV. Quality & Observability
+The trajectory is the truth. Evaluate the process, not just the output.
+
+Structured Logging: Do not rely on print(). Use structured JSON logs to capture the full "thought process" (Reasoning → Tool Call → Tool Output).
+
+Tracing: Implement OpenTelemetry to trace requests across agent steps. This is critical for debugging why an agent chose a specific path.
+
+Evaluation-Gated Deployment: Never deploy without passing a "Golden Dataset" eval. Use LLM-as-a-Judge to score subjective metrics (e.g., "Helpfulness", "Safety") at scale.
+
+Code Pattern: LLM-as-a-Judge Setup
+Create a separate evaluation script to judge agent outputs against a rubric.
+
+Python
+
+# Pseudo-code for an evaluation loop
+def evaluate_response(user_query, agent_response, golden_answer):
+    judge_prompt = f"""
+    Compare the AGENT RESPONSE to the GOLDEN ANSWER for the query: "{user_query}"
+    
+    Score 1-5 based on:
+    1. Factual Correctness
+    2. Tone
+    3. Completeness
+    
+    Agent Response: {agent_response}
+    Golden Answer: {golden_answer}
+    """
+    # Call a strong model (e.g., Gemini Pro) to act as judge
+    score = llm_judge.generate_content(judge_prompt)
+    return parse_score(score)
+V. Production Readiness
+Build trust with safety and automation.
+
+Guardrails: Implement input/output filters (e.g., using Model Armor or custom classifiers) to catch PII leaks and prompt injection attempts before they reach the model or user.
+
+CI/CD for Agents: Treat prompts and configuration as code.
+
+CI: Run unit tests for tools + Eval suite on a small "smoke test" dataset.
+
+CD: Deploy to staging for "red teaming" before production.
+
+Human-in-the-Loop (HITL): For high-stakes actions (e.g., refunds, data deletion), force the agent to request human approval via a "Reviewer UI" before executing the tool.
