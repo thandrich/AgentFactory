@@ -18,58 +18,83 @@ class AgentFactory:
         self.engineer = Engineer()
         self.auditor = Auditor()
         
-    def create_agent(self, goal: str, max_retries: int = 3) -> tuple[Optional[str], Optional[Dict[str, Any]]]:
+    def create_agent(self, goal: str, max_retries: int = 3, debug_callback: Optional[callable] = None) -> tuple[Optional[str], Optional[Dict[str, Any]]]:
         """
         Creates an agent based on the goal.
         Returns (generated_code, blueprint) if successful, (None, None) otherwise.
         """
-        logger.info(f"Starting agent creation for goal: {goal}")
-        
         # Create workspace
         slug = "".join(c if c.isalnum() else "_" for c in goal.lower())[:50]
         workspace_dir = os.path.join(os.getcwd(), "workspaces", slug)
         os.makedirs(workspace_dir, exist_ok=True)
+        
+        # Setup logging for this run
+        log_file = os.path.join(workspace_dir, "debug.log")
+        # Re-setup logger to include file handler
+        global logger
+        logger = setup_logging("Factory", log_file)
+        
+        logger.info(f"Starting agent creation for goal: {goal}")
         logger.info(f"Created workspace: {workspace_dir}")
         
-        # Step 1: Architect
-        blueprint = self.architect.design_agent(goal)
-        if "error" in blueprint:
-            logger.error(f"Architect failed: {blueprint['error']}")
+        # Helper for debug callback
+        def notify_debug(step_name: str, content: Any):
+            if debug_callback:
+                if not debug_callback(step_name, content):
+                    logger.warning(f"Process cancelled by user at step: {step_name}")
+                    raise InterruptedError("Cancelled by user")
+
+        try:
+            # Step 1: Architect
+            notify_debug("Architect: Start", {"goal": goal})
+            blueprint = self.architect.design_agent(goal)
+            notify_debug("Architect: End", blueprint)
+            
+            if "error" in blueprint:
+                logger.error(f"Architect failed: {blueprint['error']}")
+                return None, None
+                
+            logger.info("Blueprint generated successfully.")
+            
+            # Step 2 & 3: Engineer & Auditor Loop
+            current_code = None
+            feedback = None
+            
+            for attempt in range(max_retries + 1):
+                logger.info(f"Attempt {attempt + 1}/{max_retries + 1}")
+                
+                # Engineer
+                notify_debug(f"Engineer: Start (Attempt {attempt+1})", {"blueprint": blueprint, "feedback": feedback})
+                if feedback:
+                    logger.info("Providing feedback to Engineer...")
+                    current_code = self.engineer.build_agent(blueprint) 
+                else:
+                    current_code = self.engineer.build_agent(blueprint)
+                notify_debug(f"Engineer: End (Attempt {attempt+1})", {"code": current_code})
+                    
+                # Auditor
+                notify_debug(f"Auditor: Start (Attempt {attempt+1})", {"code": current_code})
+                review_result = self.auditor.review_code(current_code, blueprint)
+                notify_debug(f"Auditor: End (Attempt {attempt+1})", review_result)
+                
+                if review_result is True:
+                    logger.info("Auditor approved the code!")
+                    
+                    # Save code to workspace
+                    file_path = os.path.join(workspace_dir, "agent.py")
+                    with open(file_path, "w") as f:
+                        f.write(current_code)
+                    logger.info(f"Agent code saved to: {file_path}")
+                    
+                    return current_code, blueprint
+                else:
+                    feedback = review_result
+                    logger.warning(f"Auditor rejected the code. Issues: {feedback['issues']}")
+                    
+            logger.error("Max retries reached. Agent creation failed.")
             return None, None
             
-        logger.info("Blueprint generated successfully.")
-        
-        # Step 2 & 3: Engineer & Auditor Loop
-        current_code = None
-        feedback = None
-        
-        for attempt in range(max_retries + 1):
-            logger.info(f"Attempt {attempt + 1}/{max_retries + 1}")
-            
-            # Engineer generates code (taking feedback into account if any)
-            if feedback:
-                logger.info("Providing feedback to Engineer...")
-                current_code = self.engineer.build_agent(blueprint) 
-            else:
-                current_code = self.engineer.build_agent(blueprint)
-                
-            # Auditor reviews code
-            review_result = self.auditor.review_code(current_code, blueprint)
-            
-            if review_result is True:
-                logger.info("Auditor approved the code!")
-                
-                # Save code to workspace
-                file_path = os.path.join(workspace_dir, "agent.py")
-                with open(file_path, "w") as f:
-                    f.write(current_code)
-                logger.info(f"Agent code saved to: {file_path}")
-                
-                return current_code, blueprint
-            else:
-                feedback = review_result
-                logger.warning(f"Auditor rejected the code. Issues: {feedback['issues']}")
-                
-        logger.error("Max retries reached. Agent creation failed.")
-        return None, None
+        except InterruptedError:
+            logger.info("Process stopped by user.")
+            return None, None
 
