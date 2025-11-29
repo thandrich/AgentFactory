@@ -13,10 +13,10 @@ class AgentFactory:
     The main factory class that orchestrates the creation of agents.
     """
     
-    def __init__(self):
-        self.architect = Architect()
-        self.engineer = Engineer()
-        self.auditor = Auditor()
+    def __init__(self, model_name: str = "gemini-2.5-flash"):
+        self.architect = Architect(model_name=model_name)
+        self.engineer = Engineer(model_name=model_name)
+        self.auditor = Auditor(model_name=model_name)
 
     def prepare_workspace(self, goal: str) -> tuple[str, Any]:
         """Prepares the workspace and logging for a new agent."""

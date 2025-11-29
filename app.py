@@ -13,16 +13,87 @@ sys.path.append(os.path.join(os.getcwd(), "src"))
 
 from agent_factory.factory import AgentFactory
 from agent_factory.qa_lead import QALead
+from agent_factory.utils import get_available_models
 
 st.set_page_config(page_title="AgentFactory", layout="wide")
 
 st.title("🏭 AgentFactory")
 st.markdown("### Collaborative Multi-Agent System for AI Agent Creation")
 
-# Sidebar for configuration
-st.sidebar.header("Configuration")
-model_name = st.sidebar.selectbox("Model", ["gemini-pro", "gemini-1.5-flash"])
-max_retries = st.sidebar.slider("Max API Calls", 1, 50, 10)
+# Configuration Section (Main Page for Width)
+with st.expander("⚙️ Configuration", expanded=True):
+    # Dynamic Model Selection
+    if "available_models" not in st.session_state:
+        with st.spinner("Fetching available models..."):
+            st.session_state.available_models = get_available_models()
+    
+    models = st.session_state.available_models
+    
+    # Sort by Display Name (ASC) then Version (DESC)
+    models.sort(key=lambda x: (x["display_name"], x.get("version", "")), reverse=False)
+    # To get Version DESC, we can't easily use a single lambda with mixed sort orders for strings.
+    # So let's sort by Version DESC first, then Display Name ASC (Python sort is stable)
+    models.sort(key=lambda x: x.get("version", ""), reverse=True)
+    models.sort(key=lambda x: x["display_name"])
+    
+    # Format function for dropdown
+    def format_model_option(model):
+        thinking_tag = " 🧠" if model.get("thinking") else ""
+        version = model.get("version", "")
+        return f"{model['display_name']} - {version}{thinking_tag}"
+    
+    # Create a mapping for easy lookup
+    model_map = {format_model_option(m): m for m in models}
+    model_options = list(model_map.keys())
+    
+    # Default selection logic
+    default_index = 0
+    for i, opt in enumerate(model_options):
+        if "Gemini 2.5 Flash" in opt:
+            default_index = i
+            break
+            
+    selected_option = st.selectbox("Select Model", model_options, index=default_index)
+    selected_model_info = model_map[selected_option]
+    selected_model_name = selected_model_info["name"]
+    
+    # Comprehensive Details Display
+    st.markdown("---")
+    st.markdown(f"### {selected_model_info['display_name']}")
+    st.caption(selected_model_info.get('description'))
+    
+    # Row 1: Key Specs
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Version", selected_model_info.get('version'))
+    c2.metric("Type", selected_model_info.get('type'))
+    c3.metric("Input Limit", f"{selected_model_info.get('input_token_limit'):,}")
+    c4.metric("Output Limit", f"{selected_model_info.get('output_token_limit'):,}")
+    
+    # Row 2: Sampling Parameters & Capabilities
+    st.markdown("**Model Parameters & Capabilities**")
+    c1, c2 = st.columns(2)
+    
+    with c1:
+        st.write("🎛️ **Sampling Defaults**")
+        params = {
+            "Temperature": selected_model_info.get('temperature'),
+            "Max Temp": selected_model_info.get('max_temperature'),
+            "Top P": selected_model_info.get('top_p'),
+            "Top K": selected_model_info.get('top_k')
+        }
+        st.json({k: v for k, v in params.items() if v is not None})
+        
+    with c2:
+        st.write("⚡ **Capabilities**")
+        methods = selected_model_info.get('supported_generation_methods', [])
+        for method in methods:
+            st.markdown(f"- `{method}`")
+        if selected_model_info.get('thinking'):
+            st.markdown("- `🧠 Thinking / Reasoning`")
+
+    max_retries = st.slider("Max API Calls", 1, 50, 10)
+
+model_name = selected_model_name # Alias for compatibility
 
 # Tabs
 tab1, tab2 = st.tabs(["🚀 YOLO Mode", "🐞 Debug Mode"])
@@ -33,11 +104,11 @@ with tab1:
     st.markdown("Fire-and-forget agent creation.")
     
     yolo_goal = st.text_area("What agent do you want to build?", "Build a weather bot that can tell me the weather in London")
-    yolo_max_api_calls = st.number_input("Max API Calls (Security)", 1, 20, 5, key="yolo_max")
+    # yolo_max_api_calls removed, using global max_retries
     
     if st.button("Build Agent (YOLO)"):
         with st.status("Building Agent...", expanded=True) as status:
-            factory = AgentFactory()
+            factory = AgentFactory(model_name=model_name)
             qa = QALead()
             
             st.write("🏗️ Architect designing blueprint...")
@@ -71,7 +142,7 @@ with tab2:
     st.markdown("Interactive step-by-step execution.")
     
     debug_goal = st.text_area("What agent do you want to build?", "Build a weather bot that can tell me the weather in London", key="debug_goal")
-    debug_max_retries = st.slider("Max API Calls", 1, 50, 10, key="debug_retries")
+    # debug_max_retries removed, using global max_retries
     
     # State Management
     if "debug_state" not in st.session_state:
@@ -90,7 +161,7 @@ with tab2:
     # Start Button
     if st.session_state.debug_state == "IDLE":
         if st.button("Start Debug Session"):
-            factory = AgentFactory()
+            factory = AgentFactory(model_name=model_name)
             workspace_dir, logger = factory.prepare_workspace(debug_goal)
             st.session_state.workspace_dir = workspace_dir
             st.session_state.debug_state = "ARCHITECT_READY"
@@ -118,14 +189,14 @@ with tab2:
         
         col1, col2 = st.columns(2)
         if col1.button("▶️ Run Architect"):
-            factory = AgentFactory()
+            factory = AgentFactory(model_name=model_name)
             # Re-setup logging
             factory.prepare_workspace(debug_goal) 
             
             with st.spinner("Architect is thinking..."):
                 blueprint = factory.architect.design_agent(debug_goal)
                 st.session_state.blueprint = blueprint
-                add_log("Architect generated blueprint.")
+                add_log(f"Architect - {model_name}: Generated blueprint.")
                 st.session_state.debug_state = "ARCHITECT_DONE"
                 st.rerun()
                 
@@ -154,7 +225,7 @@ with tab2:
             
         col1, col2 = st.columns(2)
         if col1.button("▶️ Run Engineer"):
-            factory = AgentFactory()
+            factory = AgentFactory(model_name=model_name)
             factory.prepare_workspace(debug_goal)
             
             with st.spinner("Engineer is coding..."):
@@ -164,7 +235,7 @@ with tab2:
                     code = factory.engineer.build_agent(st.session_state.blueprint)
                 
                 st.session_state.code = code
-                add_log(f"Engineer generated code (Attempt {st.session_state.attempt})")
+                add_log(f"Engineer - {model_name}: Generated code (Attempt {st.session_state.attempt})")
                 st.session_state.debug_state = "ENGINEER_DONE"
                 st.rerun()
                 
@@ -190,12 +261,12 @@ with tab2:
         
         col1, col2 = st.columns(2)
         if col1.button("▶️ Run Auditor"):
-            factory = AgentFactory()
+            factory = AgentFactory(model_name=model_name)
             factory.prepare_workspace(debug_goal)
             
             with st.spinner("Auditor is reviewing..."):
                 result = factory.auditor.review_code(st.session_state.code, st.session_state.blueprint)
-                add_log(f"Auditor review complete: {result}")
+                add_log(f"Auditor - {model_name}: Review complete: {result}")
                 
                 if result is True:
                     st.session_state.debug_state = "SUCCESS"
@@ -203,7 +274,7 @@ with tab2:
                     factory.save_agent(st.session_state.code, st.session_state.workspace_dir)
                 else:
                     st.session_state.feedback = result
-                    if st.session_state.attempt < debug_max_retries:
+                    if st.session_state.attempt < max_retries:
                         st.session_state.debug_state = "RETRY_NEEDED"
                     else:
                         st.session_state.debug_state = "FAILED"

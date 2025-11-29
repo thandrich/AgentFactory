@@ -18,7 +18,11 @@ class Engineer:
         """
         Generates Python code for the agent based on the blueprint.
         """
-        logger.info(f"Engineer received blueprint for: {blueprint.get('agent_name')}")
+        if not blueprint or not isinstance(blueprint, dict):
+            logger.error("Engineer received invalid blueprint")
+            return "# Error: Invalid blueprint"
+            
+        logger.info(f"Engineer received blueprint for: {blueprint.get('agent_name', 'Unknown')}")
         
         prompt = f"""
         You are The Engineer, a senior Python developer.
