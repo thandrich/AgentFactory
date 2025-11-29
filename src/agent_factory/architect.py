@@ -1,26 +1,36 @@
-from typing import Dict, Any
+import logging
 import json
-from .utils import setup_logging
+import os
+from typing import Dict, Any
+import google.generativeai as genai
+from dotenv import load_dotenv
 
-logger = setup_logging("Architect")
+# Load environment variables
+load_dotenv()
+
+# Configure Gemini API
+api_key = os.getenv("GOOGLE_API_KEY")
+if api_key:
+    genai.configure(api_key=api_key)
+else:
+    logging.warning("GOOGLE_API_KEY not found in environment variables.")
+
+logger = logging.getLogger("Architect")
 
 class Architect:
     """
-    The Architect Agent.
-    Role: Strategic planning and context engineering.
-    Input: User natural language request.
-    Output: JSON Blueprint.
+    The Architect agent is responsible for understanding the user's goal
+    and designing a blueprint for the agent.
     """
 
-    def __init__(self, model_name: str = "gemini-pro"):
+    def __init__(self, model_name: str = "gemini-2.5-flash"):
         self.model_name = model_name
-        # Mocking ADK Model initialization
-        # self.model = adk.Model(model_name)
-        logger.info(f"Architect initialized with ADK model: {model_name}")
+        self.model = genai.GenerativeModel(model_name)
+        logger.info(f"Architect initialized with model: {model_name}")
 
     def design_agent(self, goal: str) -> Dict[str, Any]:
         """
-        Decomposes the user goal into a blueprint.
+        Generates a JSON blueprint for the requested agent.
         """
         logger.info(f"Architect received goal: {goal}")
         
@@ -51,41 +61,24 @@ class Architect:
         }}
         
         Ensure the system instructions are clear and the tools are well-defined.
-        Return ONLY valid JSON.
+        Return ONLY valid JSON. Do not include markdown code blocks.
         """
-        
-        # Mocking the LLM response for MVP 1 if ADK is not yet fully integrated or for testing
-        # In real implementation: response = self.model.generate_content(prompt)
-        # For now, we will simulate a response for the "weather bot" example to pass the test
         
         logger.info("Generating blueprint...")
         
-        # TODO: Replace with actual LLM call
-        # For the purpose of the MVP 1 verification without a live API key/ADK setup in this environment yet:
-        if "weather" in goal.lower():
-            return {
-                "agent_name": "WeatherBot",
-                "role": "Provides weather updates",
-                "system_instruction": "Mission: You are a helpful weather assistant.\nScene: User asks for weather.\nThink: Identify the location.\nAct: Use get_weather.\nObserve: Report the result.",
-                "few_shot_examples": [
-                    "User: Weather in Paris?\nAgent: [Calls get_weather('Paris')]\nAgent: It is Sunny in Paris."
-                ],
-                "evaluation_criteria": [
-                    "Must correctly identify the location",
-                    "Must use the get_weather tool",
-                    "Response must be polite"
-                ],
-                "tools": [
-                    {
-                        "name": "get_weather",
-                        "description": "Get the current weather for a location",
-                        "arguments": {
-                            "location": "str: City name or coordinates"
-                        }
-                    }
-                ],
-                "memory_requirements": "short-term"
-            }
+        try:
+            response = self.model.generate_content(prompt)
+            # Clean up response if it contains markdown code blocks
+            text = response.text.strip()
+            if text.startswith("```json"):
+                text = text[7:]
+            if text.startswith("```"):
+                text = text[3:]
+            if text.endswith("```"):
+                text = text[:-3]
             
-        return {"error": "Blueprint generation failed (Mock)"}
-
+            blueprint = json.loads(text.strip())
+            return blueprint
+        except Exception as e:
+            logger.error(f"Error generating blueprint: {e}")
+            return {"error": str(e)}

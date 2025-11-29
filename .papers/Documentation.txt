@@ -1,0 +1,238 @@
+Google ADK & GenAI Library Syntax Reference
+1. Setup & Configuration
+Imports
+Python
+import os
+from google.genai import types
+from google.adk.agents import LlmAgent, SequentialAgent, ParallelAgent
+from google.adk.models.google_llm import Gemini
+from google.adk.runners import InMemoryRunner, Runner
+from google.adk.tools import AgentTool, ToolContext, google_search
+from google.adk.sessions import InMemorySessionService, DatabaseSessionService
+from google.adk.memory import InMemoryMemoryService
+from google.adk.apps.app import App, EventsCompactionConfig
+
+# Auth
+os.environ["GOOGLE_API_KEY"] = "YOUR_KEY"
+
+Model Configuration & Retry Policy
+Python
+retry_config = types.HttpRetryOptions(
+    attempts=5,
+    exp_base=7,
+    initial_delay=1,
+    http_status_codes=[429, 500, 503, 504]
+)
+
+model_config = Gemini(
+    model="gemini-2.5-flash-lite", 
+    retry_options=retry_config
+)
+
+2. Defining Tools
+Standard Function Tool Must use type hints, docstrings, and return a dictionary.
+Python
+def get_weather(city: str) -> dict:
+    """Fetches weather for a city."""
+    return {"status": "success", "temp": "20C"}
+
+# Usage in Agent: tools=[get_weather]
+
+Tool with Context (Long-Running/Human-in-the-Loop) Injects ToolContext to handle interruptions or state.
+Python
+def place_order(item: str, tool_context: ToolContext) -> dict:
+    # 1. Check if confirmation already exists
+    if not tool_context.tool_confirmation:
+        # 2. Pause execution and request confirmation
+        tool_context.request_confirmation(
+            hint=f"Confirm order for {item}?",
+            payload={"item": item}
+        )
+        return {"status": "pending", "message": "Waiting for approval"}
+    
+    # 3. Resume based on confirmation status
+    if tool_context.tool_confirmation.confirmed:
+        return {"status": "success", "order_id": "123"}
+    return {"status": "rejected"}
+
+MCP Tool (Model Context Protocol) Connecting to external MCP servers.
+Python
+from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
+from google.adk.tools.mcp_tool.mcp_session_manager import StdioConnectionParams, StdioServerParameters
+
+mcp_tool = McpToolset(
+    connection_params=StdioConnectionParams(
+        server_params=StdioServerParameters(
+            command="npx",
+            args=["-y", "@modelcontextprotocol/server-everything"],
+            tool_filter=["getTinyImage"] # Optional filter
+        )
+    )
+)
+
+3. Agent Architectures
+Single Agent
+Python
+agent = LlmAgent(
+    name="helper",
+    model=model_config,
+    instruction="You are a helpful assistant.",
+    tools=[google_search, get_weather]
+)
+
+Agent as a Tool
+Python
+# Allows 'root_agent' to call 'specialist_agent'
+root_agent = LlmAgent(
+    name="root",
+    model=model_config,
+    tools=[AgentTool(agent=specialist_agent)]
+)
+
+Sequential Agent (Pipeline)
+Python
+seq_agent = SequentialAgent(
+    name="pipeline",
+    sub_agents=[research_agent, writer_agent, editor_agent] 
+    # Output of one becomes input of next
+)
+
+Parallel Agent (Concurrency)
+Python
+parallel_agent = ParallelAgent(
+    name="parallel_group",
+    sub_agents=[researcher_1, researcher_2]
+)
+
+4. Execution (Runners)
+Quick Debug (InMemory)
+Python
+runner = InMemoryRunner(agent=my_agent)
+
+# Single turn
+response = await runner.run_debug("Query text")
+
+# Streaming response
+async for event in runner.run_async(user_id="u1", session_id="s1", new_message=content_obj):
+    print(event)
+
+Production Runner (Stateful)
+Python
+# 1. Define App with Compaction (Optional)
+app = App(
+    name="my_app",
+    root_agent=my_agent,
+    events_compaction_config=EventsCompactionConfig(
+        compaction_interval=3, 
+        overlap_size=1
+    )
+)
+
+# 2. Define Persistence
+session_service = DatabaseSessionService(db_url="sqlite:///data.db")
+
+# 3. Run
+runner = Runner(
+    app=app, 
+    session_service=session_service
+)
+
+5. Memory Management
+Initialization
+Python
+from google.adk.tools import load_memory, preload_memory
+
+memory_service = InMemoryMemoryService() # Or VertexAiMemoryBankService
+
+agent = LlmAgent(
+    ...,
+    # 'load_memory' lets agent choose when to search. 
+    # 'preload_memory' forces search every turn.
+    tools=[load_memory] 
+)
+
+runner = Runner(
+    agent=agent,
+    session_service=session_service,
+    memory_service=memory_service
+)
+
+Ingestion & Search
+Python
+# Save finished session to memory
+await memory_service.add_session_to_memory(session_obj)
+
+# Search programmatically
+results = await memory_service.search_memory(
+    app_name="app", 
+    user_id="user", 
+    query="favorite color"
+)
+
+Automated Callback Storage
+Python
+async def auto_save(ctx):
+    await ctx._invocation_context.memory_service.add_session_to_memory(
+        ctx._invocation_context.session
+    )
+
+agent = LlmAgent(..., after_agent_callback=auto_save)
+
+6. Observability & Evaluation
+Logging Plugin
+Python
+from google.adk.plugins.logging_plugin import LoggingPlugin
+
+runner = InMemoryRunner(agent=agent, plugins=[LoggingPlugin()])
+
+Evaluation CLI Requires test_config.json and *.evalset.json files.
+Bash
+adk eval --path ./agent_dir
+
+7. Agent2Agent (A2A) Protocol
+Exposing an Agent (Server)
+Python
+from google.adk.a2a.utils.agent_to_a2a import to_a2a
+
+# Creates FastAPI app serving agent cards and endpoints
+app = to_a2a(my_agent, port=8001)
+# Run with uvicorn
+
+Consuming an Agent (Client)
+Python
+from google.adk.agents.remote_a2a_agent import RemoteA2aAgent
+
+remote_agent = RemoteA2aAgent(
+    name="remote_service",
+    url="http://localhost:8001",
+    description="Description helps the LLM know when to use this"
+)
+
+consumer_agent = LlmAgent(
+    ...,
+    sub_agents=[remote_agent] # Used seamlessly like a local agent
+)
+
+8. Deployment (Vertex AI Agent Engine)
+Config File (.agent_engine_config.json)
+JSON
+{
+  "min_instances": 0,
+  "max_instances": 1,
+  "resource_limits": {"cpu": "1", "memory": "1Gi"}
+}
+
+CLI Deployment
+Bash
+adk deploy agent_engine --project=$PROJECT_ID --region=$REGION sample_agent_dir
+
+Interacting with Deployed Agent
+Python
+from vertexai import agent_engines
+import vertexai
+
+vertexai.init(project=..., location=...)
+remote_agent = agent_engines.get(name="projects/.../reasoningEngines/...")
+
+response = remote_agent.query(message="Hello")
+

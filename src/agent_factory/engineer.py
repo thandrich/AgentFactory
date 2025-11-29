@@ -1,132 +1,104 @@
 from typing import Dict, Any
-import json
-from .utils import setup_logging
+import logging
+import google.generativeai as genai
 
-logger = setup_logging("Engineer")
+logger = logging.getLogger("Engineer")
 
 class Engineer:
     """
-    The Engineer Agent.
-    Role: Code generation and ADK implementation.
-    Input: JSON Blueprint.
-    Output: Python code string.
+    The Engineer agent is responsible for writing the Python code for the agent.
     """
 
-    def __init__(self, model_name: str = "gemini-pro"):
+    def __init__(self, model_name: str = "gemini-2.5-flash"):
         self.model_name = model_name
+        self.model = genai.GenerativeModel(model_name)
         logger.info(f"Engineer initialized with model: {model_name}")
 
     def build_agent(self, blueprint: Dict[str, Any]) -> str:
         """
-        Generates the Python code for the agent based on the blueprint.
+        Generates Python code for the agent based on the blueprint.
         """
-        logger.info(f"Engineer received blueprint for: {blueprint.get('agent_name', 'Unknown')}")
+        logger.info(f"Engineer received blueprint for: {blueprint.get('agent_name')}")
         
-        # Prompt engineering for the Engineer
         prompt = f"""
-        You are The Engineer, an expert Python developer using the Google Agent Development Kit (ADK).
-        Your goal is to write the Python code to implement the agent described in the Blueprint.
+        You are The Engineer, a senior Python developer.
+        Your goal is to write a production-ready Python script for an AI agent based on the provided Blueprint.
         
         Blueprint:
-        {json.dumps(blueprint, indent=2)}
+        {blueprint}
         
+        ### ADK Syntax Reference (Use this EXACT syntax):
+        
+        1. **Imports**:
+           ```python
+           import os
+           from google.genai import types
+           from google.adk.agents import LlmAgent
+           from google.adk.models.google_llm import Gemini
+           from google.adk.runners import InMemoryRunner
+           from google.adk.tools import AgentTool, ToolContext
+           ```
+           
+        2. **Model Config**:
+           ```python
+           model_config = Gemini(model="gemini-2.5-flash")
+           ```
+           
+        3. **Tools**:
+           - Must use type hints and docstrings.
+           - Must return a dictionary (e.g., `return {{"status": "success", "data": ...}}`).
+           ```python
+           def my_tool(arg: str) -> dict:
+               \"\"\"Description.\"\"\"
+               return {{"result": "value"}}
+           ```
+           
+        4. **Agent Definition**:
+           ```python
+           agent = LlmAgent(
+               name="agent_name",
+               model=model_config,
+               instruction="System instruction...",
+               tools=[my_tool]
+           )
+           ```
+           
+        5. **Execution (Main Block)**:
+           ```python
+           import asyncio
+           
+           async def main():
+               runner = InMemoryRunner(agent=agent)
+               response = await runner.run_debug("User query")
+               print(response)
+               
+           if __name__ == "__main__":
+               asyncio.run(main())
+           ```
+
         Requirements:
-        1. Import `google.adk` and other necessary libraries.
-        2. Define the tools as Python functions with type hints and docstrings.
-        3. Instantiate the agent using `adk.Agent` (or equivalent based on ADK docs).
-        4. Include a `main` function or execution block to run the agent.
-        5. Ensure robust error handling.
+        1. Follow the **ADK Syntax Reference** above strictly.
+        2. Implement the tools defined in the blueprint.
+        3. Use `gemini-2.5-flash` as the model.
+        4. Include the `if __name__ == "__main__":` block using `asyncio.run(main())`.
+        5. Ensure robust docstrings for tools.
         
-        Return ONLY the Python code.
+        Output ONLY the Python code. Do not include markdown code blocks.
         """
         
-        # Mocking the LLM response for MVP 2
         logger.info("Generating code...")
         
-        # TODO: Replace with actual LLM call
-        # Mock response for WeatherBot with ADK, Security, and Best Practices
-        if blueprint.get("agent_name") == "WeatherBot":
-            return """
-import logging
-from typing import List, Any
-
-# Mocking google.adk for demonstration if not available
-try:
-    import google.adk as adk
-except ImportError:
-    class MockADK:
-        class Agent:
-            def __init__(self, name, system_instruction, tools, model="gemini-pro", plugins=None):
-                self.name = name
-                self.system_instruction = system_instruction
-                self.tools = tools
-                self.model = model
-                self.plugins = plugins or []
-                self.chat_history = []
-                
-            def generate_response(self, prompt):
-                # Mock LLM response
-                return "Sunny, 25°C"
-                
-        class ContextFilterPlugin:
-            def __init__(self, num_invocations_to_keep):
-                self.num_invocations_to_keep = num_invocations_to_keep
-                
-    adk = MockADK()
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("WeatherBot")
-
-def get_weather(location: str) -> str:
-    \"\"\"
-    Retrieves the current weather for a specific location.
-    
-    Args:
-        location: The name of the city or coordinates (e.g., 'London', '40.7128,-74.0060').
-        
-    Returns:
-        A string describing the weather conditions (e.g., 'Sunny, 25°C').
-    \"\"\"
-    # Mock implementation
-    logger.info(f"Getting weather for {location}")
-    return f"The weather in {location} is Sunny, 25°C."
-
-class WeatherBot(adk.Agent):
-    def __init__(self, max_api_calls: int = 5):
-        # Best Practice: Context Compaction
-        context_plugin = adk.ContextFilterPlugin(num_invocations_to_keep=10)
-        
-        super().__init__(
-            name="WeatherBot",
-            system_instruction="Mission: You are a helpful weather assistant.\\nScene: User asks for weather.\\nThink: Identify the location.\\nAct: Use get_weather.\\nObserve: Report the result.",
-            tools=[get_weather],
-            model="gemini-pro",
-            plugins=[context_plugin]
-        )
-        self.max_api_calls = max_api_calls
-        self.api_calls_count = 0
-        
-    def run(self, user_input: str) -> str:
-        logger.info(f"User Input: {user_input}")
-        
-        if self.api_calls_count >= self.max_api_calls:
-            return "Error: Maximum API calls exceeded."
-            
-        self.api_calls_count += 1
-        
-        # Simple rule-based mock for the agent logic to simulate tool usage
-        if "weather" in user_input.lower():
-            # Extract location (naive)
-            words = user_input.split()
-            location = words[-1] # Assume last word is location
-            return get_weather(location)
-            
-        return "I can only help with weather."
-
-if __name__ == "__main__":
-    bot = WeatherBot(max_api_calls=3)
-    print(bot.run("What is the weather in London"))
-"""
-        
-        return "# Error: Code generation failed (Mock)"
+        try:
+            response = self.model.generate_content(prompt)
+            code = response.text.strip()
+            # Clean up markdown
+            if code.startswith("```python"):
+                code = code[9:]
+            if code.startswith("```"):
+                code = code[3:]
+            if code.endswith("```"):
+                code = code[:-3]
+            return code.strip()
+        except Exception as e:
+            logger.error(f"Error generating code: {e}")
+            return f"# Error generating code: {e}"

@@ -17,18 +17,13 @@ class AgentFactory:
         self.architect = Architect()
         self.engineer = Engineer()
         self.auditor = Auditor()
-        
-    def create_agent(self, goal: str, max_retries: int = 3, debug_callback: Optional[callable] = None) -> tuple[Optional[str], Optional[Dict[str, Any]]]:
-        """
-        Creates an agent based on the goal.
-        Returns (generated_code, blueprint) if successful, (None, None) otherwise.
-        """
-        # Create workspace
+
+    def prepare_workspace(self, goal: str) -> tuple[str, Any]:
+        """Prepares the workspace and logging for a new agent."""
         slug = "".join(c if c.isalnum() else "_" for c in goal.lower())[:50]
         workspace_dir = os.path.join(os.getcwd(), "workspaces", slug)
         os.makedirs(workspace_dir, exist_ok=True)
         
-        # Setup logging for this run
         log_file = os.path.join(workspace_dir, "debug.log")
         # Re-setup logger to include file handler
         global logger
@@ -36,6 +31,22 @@ class AgentFactory:
         
         logger.info(f"Starting agent creation for goal: {goal}")
         logger.info(f"Created workspace: {workspace_dir}")
+        return workspace_dir, logger
+
+    def save_agent(self, code: str, workspace_dir: str) -> str:
+        """Saves the agent code to the workspace."""
+        file_path = os.path.join(workspace_dir, "agent.py")
+        with open(file_path, "w") as f:
+            f.write(code)
+        logger.info(f"Agent code saved to: {file_path}")
+        return file_path
+        
+    def create_agent(self, goal: str, max_retries: int = 3, debug_callback: Optional[callable] = None) -> tuple[Optional[str], Optional[Dict[str, Any]]]:
+        """
+        Creates an agent based on the goal.
+        Returns (generated_code, blueprint) if successful, (None, None) otherwise.
+        """
+        workspace_dir, _ = self.prepare_workspace(goal)
         
         # Helper for debug callback
         def notify_debug(step_name: str, content: Any):
@@ -81,10 +92,7 @@ class AgentFactory:
                     logger.info("Auditor approved the code!")
                     
                     # Save code to workspace
-                    file_path = os.path.join(workspace_dir, "agent.py")
-                    with open(file_path, "w") as f:
-                        f.write(current_code)
-                    logger.info(f"Agent code saved to: {file_path}")
+                    self.save_agent(current_code, workspace_dir)
                     
                     return current_code, blueprint
                 else:
@@ -97,4 +105,3 @@ class AgentFactory:
         except InterruptedError:
             logger.info("Process stopped by user.")
             return None, None
-
