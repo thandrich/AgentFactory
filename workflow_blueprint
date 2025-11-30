@@ -1,5 +1,9 @@
 // Agent Workflow
 digraph {
 	rankdir=LR
-	WeatherTeller [label=<WeatherTeller<BR/><FONT POINT-SIZE='10'>Model: models/gemini-2.5-flash</FONT><BR/><FONT POINT-SIZE='10'>In: ['location']</FONT><BR/><FONT POINT-SIZE='10'>Out: ['weather_report']</FONT>> shape=box style=rounded]
+	location_identifier [label=<location_identifier<BR/><FONT POINT-SIZE='10'>Model: models/gemini-2.0-flash</FONT><BR/><FONT POINT-SIZE='10'>In: [{'type': 'str', 'name': 'user_request', 'description': 'The initial user request.'}]</FONT><BR/><FONT POINT-SIZE='10'>Out: [{'type': 'str', 'description': 'The identified city name.', 'name': 'city_name'}]</FONT>> shape=box style=rounded]
+	weather_data_retriever [label=<weather_data_retriever<BR/><FONT POINT-SIZE='10'>Model: models/gemini-2.0-flash</FONT><BR/><FONT POINT-SIZE='10'>In: [{'type': 'str', 'description': 'The city for which to retrieve weather data.', 'name': 'city_name'}]</FONT><BR/><FONT POINT-SIZE='10'>Out: [{'name': 'raw_weather_data', 'description': 'Raw weather data from an external API.', 'type': 'dict'}]</FONT>> shape=box style=rounded]
+	weather_formatter [label=<weather_formatter<BR/><FONT POINT-SIZE='10'>Model: models/gemini-2.5-pro</FONT><BR/><FONT POINT-SIZE='10'>In: [{'description': 'Raw weather data to be formatted.', 'type': 'dict', 'name': 'raw_weather_data'}]</FONT><BR/><FONT POINT-SIZE='10'>Out: [{'description': 'A user-friendly weather report.', 'name': 'formatted_weather_report', 'type': 'str'}]</FONT>> shape=box style=rounded]
+	location_identifier -> weather_data_retriever
+	weather_data_retriever -> weather_formatter
 }

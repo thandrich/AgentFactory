@@ -97,10 +97,30 @@ def get_available_models() -> List[Dict[str, Any]]:
 def load_agent_from_code(code: str):
     """
     Executes the provided code string and returns the 'agent' object defined within it.
+    Pre-loads common imports to prevent "name not defined" errors.
     """
+    # Pre-load common imports into global scope
+    global_scope = {
+        '__builtins__': __builtins__,
+        'os': __import__('os'),
+        'sys': __import__('sys'),
+        'json': __import__('json'),
+        'asyncio': __import__('asyncio'),
+        'logging': __import__('logging'),
+    }
+    
+    # Add ADK imports
+    try:
+        global_scope['types'] = __import__('google.genai.types', fromlist=['types'])
+        global_scope['LlmAgent'] = __import__('google.adk.agents', fromlist=['LlmAgent']).LlmAgent
+        global_scope['Gemini'] = __import__('google.adk.models.google_llm', fromlist=['Gemini']).Gemini
+        global_scope['InMemoryRunner'] = __import__('google.adk.runners', fromlist=['InMemoryRunner']).InMemoryRunner
+    except ImportError as e:
+        logger.warning(f"Could not preload ADK modules: {e}")
+    
     local_scope = {}
     try:
-        exec(code, {}, local_scope)
+        exec(code, global_scope, local_scope)
     except Exception as e:
         raise ValueError(f"Failed to execute agent code: {e}")
         
