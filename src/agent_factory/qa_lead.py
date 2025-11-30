@@ -1,124 +1,136 @@
-import contextlib
-import io
 import logging
-from typing import Dict, Any
 import json
-import google.generativeai as genai
-from dotenv import load_dotenv
-import os
-
-# Load environment variables
-load_dotenv()
-
-# Configure Gemini API
-api_key = os.getenv("GOOGLE_API_KEY")
-if api_key:
-    genai.configure(api_key=api_key)
+import sys
+import io
+import contextlib
+import asyncio
+from typing import Dict, Any, List
+from google.adk.agents import LlmAgent
+from google.adk.models.google_llm import Gemini
+from google.adk.runners import InMemoryRunner
 
 logger = logging.getLogger("QALead")
 
 class QALead:
     """
-    The QA Lead Agent.
-    Role: Execution and validation.
-    Input: Approved Python code.
-    Output: Execution trace and success status.
+    The QA Lead agent is responsible for testing the generated agent
+    and evaluating its performance against the criteria.
     """
 
-    def __init__(self):
-        logger.info("QALead initialized")
-
-    def test_agent(self, agent_code: str, test_query: str, evaluation_criteria: list = None) -> Dict[str, Any]:
-        """
-        Executes the agent code in a sandbox and runs the test query.
-        Validates the result using LLM-as-a-Judge if criteria are provided.
-        """
-        logger.info(f"QALead testing agent with query: {test_query}")
+    def __init__(self, model_name: str = "gemini-2.5-flash"):
+        self.model_name = model_name
+        self.model_config = Gemini(model=model_name)
         
-        # Sandbox execution
-        output_capture = io.StringIO()
+        self.system_instruction = """
+        You are The QA Lead, a strict quality assurance specialist.
+        Your goal is to evaluate the output of an AI agent against a set of criteria.
+        
+        Output strictly valid JSON with the following structure:
+        {
+            "success": true/false,
+            "score": 1-5,
+            "reasoning": "Explanation of the score",
+            "failures": ["List of specific criteria failures"]
+        }
+        """
+        
+        self.judge_agent = LlmAgent(
+            name="QA_Judge",
+            model=self.model_config,
+            instruction=self.system_instruction
+        )
+        self.judge_runner = InMemoryRunner(agent=self.judge_agent)
+        logger.info(f"QA Lead initialized with model: {model_name}")
+
+    def test_agent(self, agent_code: str, test_query: str, evaluation_criteria: List[str] = None) -> Dict[str, Any]:
+        """
+        Executes the agent code and evaluates the result.
+        """
+        logger.info(f"QA Lead testing agent with query: {test_query}")
+        
+        # 1. Execute the Agent Code
+        output_buffer = io.StringIO()
+        error_buffer = io.StringIO()
         
         try:
-            with contextlib.redirect_stdout(output_capture):
-                # Create a local scope for execution
-                # Use the same dictionary for globals and locals to ensure functions can see each other
-                execution_scope = {}
-                exec(agent_code, execution_scope)
+            with contextlib.redirect_stdout(output_buffer), contextlib.redirect_stderr(error_buffer):
+                # Create a restricted global scope
+                exec_globals = {}
+                exec(agent_code, exec_globals)
                 
-                # Find the agent class (assuming it's the one with 'Bot' or 'Agent' in name, or just the last class)
-                # For MVP, we know it's WeatherBot (or whatever the Architect named it, but we'll try to find a class that inherits from Agent or just any class)
-                # A robust way is to look for a class that has a 'run' method
-                agent_instance = None
-                for name, obj in execution_scope.items():
-                    if isinstance(obj, type) and hasattr(obj, 'run'):
-                        # Try to instantiate
-                        try:
-                            # Try with max_api_calls arg if it accepts it, or no args
-                            try:
-                                agent_instance = obj(max_api_calls=5)
-                            except TypeError:
-                                agent_instance = obj()
-                            break
-                        except Exception:
-                            continue
+                # Explicitly run main() if it exists
+                if "main" in exec_globals:
+                    main_func = exec_globals["main"]
+                    if asyncio.iscoroutinefunction(main_func):
+                        asyncio.run(main_func())
+                    else:
+                        main_func()
                 
-                if agent_instance:
-                    # Run the agent
-                    result = agent_instance.run(test_query)
-                    logger.info(f"Agent returned: {result}")
-                    
-                    # LLM-as-a-Judge Evaluation
-                    score = 5 # Default score
-                    judge_feedback = "No criteria provided."
-                    if evaluation_criteria:
-                        logger.info("Running LLM-as-a-Judge...")
-                        
-                        # Real LLM Judge
-                        try:
-                            model = genai.GenerativeModel("gemini-2.5-flash")
-                            judge_prompt = f"""
-                            Compare the AGENT RESPONSE to the EVALUATION CRITERIA for the query: "{test_query}"
-                            
-                            Evaluation Criteria:
-                            {evaluation_criteria}
-                            
-                            Agent Response: {result}
-                            
-                            Score 1-5 based on how well the response meets the criteria.
-                            Output a JSON object:
-                            {{
-                                "score": int,
-                                "feedback": "string explaining the score"
-                            }}
-                            """
-                            response = model.generate_content(judge_prompt)
-                            text = response.text.strip()
-                            if text.startswith("```json"):
-                                text = text[7:]
-                            if text.startswith("```"):
-                                text = text[3:]
-                            if text.endswith("```"):
-                                text = text[:-3]
-                                
-                            judge_result = json.loads(text.strip())
-                            score = judge_result.get("score", 1)
-                            judge_feedback = judge_result.get("feedback", "No feedback provided.")
-                            
-                        except Exception as e:
-                            logger.error(f"Judge failed: {e}")
-                            score = 1
-                            judge_feedback = f"Judge failed: {e}"
-                    
-                    return {
-                        "success": True,
-                        "result": result,
-                        "trace": output_capture.getvalue(),
-                        "score": score,
-                        "judge_feedback": judge_feedback
-                    }
-                else:
-                    return {"success": False, "error": "No suitable Agent class found in executed code"}
-                    
+            execution_output = output_buffer.getvalue()
+            execution_error = error_buffer.getvalue()
+            
+            logger.info(f"Agent Execution Output: {execution_output}")
+            if execution_error:
+                logger.warning(f"Agent Execution Error: {execution_error}")
+                
         except Exception as e:
-            logger.error(f"Execution failed: {e}")
-            return {"success": False, "error": str(e), "trace": output_capture.getvalue()}
+            logger.error(f"Error executing agent: {e}")
+            return {
+                "success": False,
+                "error": f"Runtime Error: {str(e)}",
+                "output": output_buffer.getvalue(),
+                "logs": error_buffer.getvalue()
+            }
+
+        # 2. Evaluate with LLM Judge
+        if not evaluation_criteria:
+            evaluation_criteria = ["Agent should provide a helpful response."]
+            
+        prompt = f"""
+        Test Query: {test_query}
+        
+        Agent Output:
+        {execution_output}
+        
+        Evaluation Criteria:
+        {json.dumps(evaluation_criteria, indent=2)}
+        
+        Did the agent meet the criteria?
+        """
+        
+        async def _run_judge():
+            events = await self.judge_runner.run_debug(prompt)
+            for event in reversed(events):
+                if hasattr(event, 'content') and event.content and event.content.parts:
+                    for part in event.content.parts:
+                        if part.text:
+                            return part.text
+            return ""
+
+        try:
+            response_text = asyncio.run(_run_judge())
+            
+            # Clean up markdown
+            cleaned_text = response_text.strip()
+            if cleaned_text.startswith("```json"):
+                cleaned_text = cleaned_text[7:]
+            if cleaned_text.startswith("```"):
+                cleaned_text = cleaned_text[3:]
+            if cleaned_text.endswith("```"):
+                cleaned_text = cleaned_text[:-3]
+            
+            result = json.loads(cleaned_text.strip())
+            
+            # Add execution logs to result
+            result["execution_output"] = execution_output
+            result["execution_logs"] = execution_error
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error evaluating agent: {e}")
+            return {
+                "success": False,
+                "error": f"Evaluation Error: {str(e)}",
+                "execution_output": execution_output
+            }

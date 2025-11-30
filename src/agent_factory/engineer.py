@@ -1,6 +1,10 @@
-from typing import Dict, Any
 import logging
-import google.generativeai as genai
+import json
+import asyncio
+from typing import Dict, Any
+from google.adk.agents import LlmAgent
+from google.adk.models.google_llm import Gemini
+from google.adk.runners import InMemoryRunner
 
 logger = logging.getLogger("Engineer")
 
@@ -11,36 +15,22 @@ class Engineer:
 
     def __init__(self, model_name: str = "gemini-2.5-flash"):
         self.model_name = model_name
-        self.model = genai.GenerativeModel(model_name)
-        logger.info(f"Engineer initialized with model: {model_name}")
-
-    def build_agent(self, blueprint: Dict[str, Any]) -> str:
-        """
-        Generates Python code for the agent based on the blueprint.
-        """
-        if not blueprint or not isinstance(blueprint, dict):
-            logger.error("Engineer received invalid blueprint")
-            return "# Error: Invalid blueprint"
-            
-        logger.info(f"Engineer received blueprint for: {blueprint.get('agent_name', 'Unknown')}")
+        self.model_config = Gemini(model=model_name)
         
-        prompt = f"""
+        self.system_instruction = """
         You are The Engineer, a senior Python developer.
         Your goal is to write a production-ready Python script for an AI agent based on the provided Blueprint.
-        
-        Blueprint:
-        {blueprint}
         
         ### ADK Syntax Reference (Use this EXACT syntax):
         
         1. **Imports**:
            ```python
            import os
+           import asyncio
            from google.genai import types
            from google.adk.agents import LlmAgent
            from google.adk.models.google_llm import Gemini
            from google.adk.runners import InMemoryRunner
-           from google.adk.tools import AgentTool, ToolContext
            ```
            
         2. **Model Config**:
@@ -50,11 +40,11 @@ class Engineer:
            
         3. **Tools**:
            - Must use type hints and docstrings.
-           - Must return a dictionary (e.g., `return {{"status": "success", "data": ...}}`).
+           - Must return a dictionary (e.g., `return {"status": "success", "data": ...}`).
            ```python
            def my_tool(arg: str) -> dict:
                \"\"\"Description.\"\"\"
-               return {{"result": "value"}}
+               return {"result": "value"}
            ```
            
         4. **Agent Definition**:
@@ -63,18 +53,23 @@ class Engineer:
                name="agent_name",
                model=model_config,
                instruction="System instruction...",
-               tools=[my_tool]
+               tools=[my_tool]  # Pass functions directly! DO NOT wrap in AgentTool.
            )
            ```
            
         5. **Execution (Main Block)**:
            ```python
-           import asyncio
-           
            async def main():
                runner = InMemoryRunner(agent=agent)
-               response = await runner.run_debug("User query")
-               print(response)
+               # Example interaction
+               events = await runner.run_debug("Start")
+               # Print the last event's text
+               for event in reversed(events):
+                   if hasattr(event, 'content') and event.content and event.content.parts:
+                       for part in event.content.parts:
+                           if part.text:
+                               print(part.text)
+                               break
                
            if __name__ == "__main__":
                asyncio.run(main())
@@ -90,11 +85,41 @@ class Engineer:
         Output ONLY the Python code. Do not include markdown code blocks.
         """
         
+        self.agent = LlmAgent(
+            name="Engineer",
+            model=self.model_config,
+            instruction=self.system_instruction
+        )
+        self.runner = InMemoryRunner(agent=self.agent)
+        logger.info(f"Engineer initialized with model: {model_name}")
+
+    def build_agent(self, blueprint: Dict[str, Any]) -> str:
+        """
+        Generates Python code for the agent based on the blueprint.
+        """
+        if not blueprint or not isinstance(blueprint, dict):
+            logger.error("Engineer received invalid blueprint")
+            return "# Error: Invalid blueprint"
+            
+        logger.info(f"Engineer received blueprint for: {blueprint.get('agent_name', 'Unknown')}")
+        
+        prompt = f"Blueprint:\n{json.dumps(blueprint, indent=2)}\n\nGenerate the Python code."
+        
         logger.info("Generating code...")
         
+        async def _run():
+            events = await self.runner.run_debug(prompt)
+            for event in reversed(events):
+                if hasattr(event, 'content') and event.content and event.content.parts:
+                    for part in event.content.parts:
+                        if part.text:
+                            return part.text
+            return ""
+
         try:
-            response = self.model.generate_content(prompt)
-            code = response.text.strip()
+            code = asyncio.run(_run())
+            code = code.strip()
+            
             # Clean up markdown
             if code.startswith("```python"):
                 code = code[9:]
@@ -103,6 +128,7 @@ class Engineer:
             if code.endswith("```"):
                 code = code[:-3]
             return code.strip()
+            
         except Exception as e:
             logger.error(f"Error generating code: {e}")
             return f"# Error generating code: {e}"
