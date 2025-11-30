@@ -266,14 +266,32 @@ with tab2:
         
         col1, col2, col3 = st.columns(3)
         if col1.button("🔄 Refine Design"):
-            st.session_state.architect_feedback = feedback_input
-            st.session_state.debug_state = "ARCHITECT_READY"
-            st.rerun()
+            if not feedback_input.strip():
+                st.warning("Please enter feedback before refining.")
+            else:
+                with st.spinner("Refining design..."):
+                    factory = AgentFactory(model_name=model_name)
+                    factory.prepare_workspace(debug_goal)
+                    available_models = [m["name"] for m in st.session_state.available_models]
+                    blueprint = factory.architect.design_workflow(
+                        debug_goal, 
+                        available_models, 
+                        feedback=feedback_input
+                    )
+                    st.session_state.blueprint = blueprint
+                    add_log(f"Architect - {model_name}: Refined blueprint based on feedback.")
+                    st.rerun()  # Stay in ARCHITECT_DONE state
             
         if col2.button("Continue to Engineer"):
-            st.session_state.debug_state = "ENGINEER_READY"
-            st.session_state.attempt = 1
-            st.rerun()
+            # Validate blueprint before proceeding
+            if "agents" not in st.session_state.blueprint:
+                st.error("❌ Invalid blueprint - no agents defined! Please refine the design.")
+            elif not st.session_state.blueprint.get("agents"):
+                st.error("❌ Blueprint has empty agents list! Please refine the design.")
+            else:
+                st.session_state.debug_state = "ENGINEER_READY"
+                st.session_state.attempt = 1
+                st.rerun()
         if col3.button("⏹️ Abort"):
             st.session_state.debug_state = "IDLE"
             st.rerun()

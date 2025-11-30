@@ -44,23 +44,25 @@ class Architect:
         3. Assign the most suitable model for each agent from the provided list; prioritise latest versions, flash models for simpler tasks, pro models for complex reasoning.
         4. Define clear Inputs and Outputs for every agent to ensure they can be chained.
         5. **Visualise** the workflow by calling the `generate_workflow_flowchart` tool.
-        6. Refine your design based on User Feedback until approved.
 
         **CONSTRAINTS:**
         - **NO** test cases.
         - **NO** mock implementations. All designs must be for production-ready builds.
-        - **Output Format:** You must output a valid JSON blueprint when finalizing, containing a list of agents and the full context.
 
-        **PROCESS:**
-        1. Receive Goal & Model List.
-        2. Think: Break down tasks.
-        3. Action: Call `generate_workflow_flowchart` with the proposed nodes and edges to show the user.
-        4. Output: A brief textual summary of the plan for the user to review.
-        5. Wait for User Feedback.
-        6. If changes needed -> Repeat.
-        7. If Approved -> Output the Final JSON Blueprint strictly.
+        **PROCESS (DO ALL IN ONE RESPONSE):**
+        1. Think: Break down the user's goal into atomic agents.
+        2. **IMMEDIATELY** call `generate_workflow_flowchart` with the proposed nodes and edges.
+        3. Provide a brief textual description of the workflow.
+        4. **IMMEDIATELY** output the complete JSON blueprint below.
+        
+        **CRITICAL RULES:**
+        - Do NOT ask the user if the plan sounds good or wait for approval
+        - Do NOT say "let me know if you'd like adjustments"
+        - Output the flowchart tool call AND the complete JSON blueprint in THIS response
+        - If refinement feedback is provided, incorporate it and output the NEW flowchart + JSON
 
-        **FINAL JSON STRUCTURE (When approved):**
+        **FINAL JSON STRUCTURE (Required in every response):**
+        ```json
         {
             "end_to_end_context": "Full description of the complete workflow",
             "agents": [
@@ -76,6 +78,7 @@ class Architect:
                 }
             ]
         }
+        ```
         """
 
         self.agent = LlmAgent(
