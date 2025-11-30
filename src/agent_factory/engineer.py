@@ -7,7 +7,7 @@ from typing import Dict, Any, Optional
 from google.adk.agents import LlmAgent
 from google.adk.models.google_llm import Gemini
 from google.adk.runners import InMemoryRunner
-from google.adk.tools import GoogleSearch  # Added Search capability
+from google.adk.tools import google_search      # Added Search capability
 
 logger = logging.getLogger("Engineer")
 
@@ -22,7 +22,7 @@ class Engineer:
         self.model_config = Gemini(model=model_name)
         
         # Initialize Google Search tool for research
-        self.search_tool = GoogleSearch()
+        self.search_tool = google_search
 
         self.system_instruction = """
         You are The Engineer, a senior Python developer and systems architect.

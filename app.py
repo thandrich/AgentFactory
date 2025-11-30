@@ -240,7 +240,8 @@ with tab2:
             with st.spinner("Architect is thinking..."):
                 # Use new design_workflow method
                 available_models = [m["name"] for m in st.session_state.available_models]
-                blueprint = factory.architect.design_workflow(debug_goal, available_models)
+                feedback = st.session_state.get("architect_feedback", None)
+                blueprint = factory.architect.design_workflow(debug_goal, available_models, feedback=feedback)
                 st.session_state.blueprint = blueprint
                 add_log(f"Architect - {model_name}: Generated blueprint.")
                 st.session_state.debug_state = "ARCHITECT_DONE"
@@ -252,14 +253,28 @@ with tab2:
 
     elif st.session_state.debug_state == "ARCHITECT_DONE":
         st.success("Architect Complete")
+        
+        # Display Flowchart
+        if os.path.exists("workflow_blueprint.png"):
+            st.image("workflow_blueprint.png", caption="Workflow Blueprint")
+            
         st.json(st.session_state.blueprint)
         
-        col1, col2 = st.columns(2)
-        if col1.button("Continue to Engineer"):
+        # Feedback UI
+        st.markdown("### Refine Design")
+        feedback_input = st.text_area("Feedback", key="architect_feedback_input")
+        
+        col1, col2, col3 = st.columns(3)
+        if col1.button("🔄 Refine Design"):
+            st.session_state.architect_feedback = feedback_input
+            st.session_state.debug_state = "ARCHITECT_READY"
+            st.rerun()
+            
+        if col2.button("Continue to Engineer"):
             st.session_state.debug_state = "ENGINEER_READY"
             st.session_state.attempt = 1
             st.rerun()
-        if col2.button("⏹️ Abort"):
+        if col3.button("⏹️ Abort"):
             st.session_state.debug_state = "IDLE"
             st.rerun()
 

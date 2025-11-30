@@ -1,7 +1,7 @@
 // Agent Workflow
 digraph {
 	rankdir=LR
-	NaturalLanguageParser [label=<NaturalLanguageParser<BR/><FONT POINT-SIZE='10'>Model: models/gemini-2.5-pro</FONT><BR/><FONT POINT-SIZE='10'>In: ['natural_language_query']</FONT><BR/><FONT POINT-SIZE='10'>Out: ['mathematical_expression']</FONT>> shape=box style=rounded]
-	ExpressionCalculator [label=<ExpressionCalculator<BR/><FONT POINT-SIZE='10'>Model: models/gemini-2.5-flash</FONT><BR/><FONT POINT-SIZE='10'>In: ['mathematical_expression']</FONT><BR/><FONT POINT-SIZE='10'>Out: ['calculation_result']</FONT>> shape=box style=rounded]
-	NaturalLanguageParser -> ExpressionCalculator
+	natural_language_parser [label=<natural_language_parser<BR/><FONT POINT-SIZE='10'>Model: models/gemini-flash-latest</FONT><BR/><FONT POINT-SIZE='10'>In: [{'name': 'user_query', 'type': 'string', 'description': 'The natural language input from the user.'}]</FONT><BR/><FONT POINT-SIZE='10'>Out: [{'type': 'string', 'name': 'parsed_expression', 'description': "The mathematical expression derived from the user's query."}]</FONT>> shape=box style=rounded]
+	expression_evaluator [label=<expression_evaluator<BR/><FONT POINT-SIZE='10'>Model: models/gemini-flash-latest</FONT><BR/><FONT POINT-SIZE='10'>In: [{'name': 'parsed_expression', 'type': 'string', 'description': 'The mathematical expression from natural_language_parser.'}]</FONT><BR/><FONT POINT-SIZE='10'>Out: [{'name': 'calculation_result', 'description': 'The numerical result of the expression, formatted as a string.', 'type': 'string'}]</FONT>> shape=box style=rounded]
+	natural_language_parser -> expression_evaluator
 }

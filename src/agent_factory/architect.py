@@ -110,129 +110,13 @@ class Architect:
             for edge in edges:
                 dot.edge(edge['from'], edge['to'])
 
+            # Save to current working directory (project root or workspace)
             output_filename = 'workflow_blueprint'
             output_path = dot.render(output_filename, cleanup=True)
-            logger.info(f"Flowchart generated at: {output_path}")
-            return f"Flowchart successfully generated and saved to {output_path}. Please present this to the user."
-        except Exception as e:
-            logger.error(f"Failed to generate flowchart: {e}")
-            return f"Error generating flowchart: {str(e)}"
-# Load environment variables
-from dotenv import load_dotenv
-load_dotenv()
-import logging
-import json
-import asyncio
-import os
-from typing import Dict, Any, List, Optional
-from graphviz import Digraph
-from google.adk.agents import LlmAgent
-from google.adk.models.google_llm import Gemini
-from google.adk.runners import InMemoryRunner
-
-logger = logging.getLogger("Architect")
-logging.basicConfig(level=logging.INFO)
-
-class Architect:
-    """
-    The Architect agent is responsible for decomposing high-level user requests into 
-    atomic, production-ready specialist agents. It visualizes the workflow and 
-    iterates based on user feedback before generating a comprehensive JSON blueprint 
-    for the Engineer agents.
-    """
-
-    def __init__(self, model_name: str = "gemini-2.5-flash"):
-        """
-        Initialize the Architect.
-        
-        Args:
-            model_name: The model to use for the Architect itself.
-        """
-        self.model_name = model_name
-        self.model_config = Gemini(model=model_name)
-        
-        # Define the tool for flowchart generation
-        self.tools = [self.generate_workflow_flowchart]
-
-        self.system_instruction = """
-        You are The Architect, a senior AI systems designer.
-        
-        **CORE RESPONSIBILITIES:**
-        1. Analyze the User's Request.
-        2. Break it down into atomic, granular steps. prioritize multiple specialist agents over single complex agents.
-        3. Assign the most suitable model for each agent from the provided list; prioritise latest versions, flash models for simpler tasks, pro models for complex reasoning.
-        4. Define clear Inputs and Outputs for every agent to ensure they can be chained.
-        5. **Visualise** the workflow by calling the `generate_workflow_flowchart` tool.
-        6. Refine your design based on User Feedback until approved.
-
-        **CONSTRAINTS:**
-        - **NO** test cases.
-        - **NO** mock implementations. All designs must be for production-ready builds.
-        - **Output Format:** You must output a valid JSON blueprint when finalizing, containing a list of agents and the full context.
-
-        **PROCESS:**
-        1. Receive Goal & Model List.
-        2. Think: Break down tasks.
-        3. Action: Call `generate_workflow_flowchart` with the proposed nodes and edges to show the user.
-        4. Output: A brief textual summary of the plan for the user to review.
-        5. Wait for User Feedback.
-        6. If changes needed -> Repeat.
-        7. If Approved -> Output the Final JSON Blueprint strictly.
-
-        **FINAL JSON STRUCTURE (When approved):**
-        {
-            "end_to_end_context": "Full description of the complete workflow",
-            "agents": [
-                {
-                    "agent_name": "unique_snake_case_name",
-                    "role": "Specific role description",
-                    "suggested_model": "model_name",
-                    "goal": "Atomic goal of this agent",
-                    "inputs": [{"name": "var_name", "type": "type", "description": "desc"}],
-                    "outputs": [{"name": "var_name", "type": "type", "description": "desc"}],
-                    "dependencies": ["name_of_agent_it_depends_on"],
-                    "instructions": "Detailed prompt instructions for the Engineer to build this agent."
-                }
-            ]
-        }
-        """
-
-        self.agent = LlmAgent(
-            name="Architect",
-            model=self.model_config,
-            instruction=self.system_instruction,
-            tools=self.tools
-        )
-        self.runner = InMemoryRunner(agent=self.agent)
-        logger.info(f"Architect initialized with model: {model_name}")
-
-    def generate_workflow_flowchart(self, nodes: List[Dict[str, str]], edges: List[Dict[str, str]]) -> str:
-        """
-        Generates a visual flowchart of the proposed agent workflow using Graphviz.
-        
-        Args:
-            nodes: List of dicts with keys 'name', 'model', 'inputs', 'outputs'.
-            edges: List of dicts with keys 'from', 'to'.
+            abs_path = os.path.abspath(output_path)
             
-        Returns:
-            str: Status message indicating where the flowchart was saved.
-        """
-        try:
-            dot = Digraph(comment='Agent Workflow', format='png')
-            dot.attr(rankdir='LR')  # Left to Right orientation
-
-            for node in nodes:
-                # Create a label that shows Name, Model, and IO
-                label = f"<{node['name']}<BR/><FONT POINT-SIZE='10'>Model: {node.get('model', 'N/A')}</FONT><BR/><FONT POINT-SIZE='10'>In: {node.get('inputs', '[]')}</FONT><BR/><FONT POINT-SIZE='10'>Out: {node.get('outputs', '[]')}</FONT>>"
-                dot.node(node['name'], label=label, shape='box', style='rounded')
-
-            for edge in edges:
-                dot.edge(edge['from'], edge['to'])
-
-            output_filename = 'workflow_blueprint'
-            output_path = dot.render(output_filename, cleanup=True)
-            logger.info(f"Flowchart generated at: {output_path}")
-            return f"Flowchart successfully generated and saved to {output_path}. Please present this to the user."
+            logger.info(f"Flowchart generated at: {abs_path}")
+            return f"Flowchart successfully generated and saved to {abs_path}. Please present this to the user."
         except Exception as e:
             logger.error(f"Failed to generate flowchart: {e}")
             return f"Error generating flowchart: {str(e)}"
@@ -240,12 +124,12 @@ class Architect:
     def _clean_json_response(self, text: str) -> str:
         """Helper to clean markdown code blocks from LLM response."""
         cleaned = text.strip()
-        if cleaned.startswith("```json"):
-            cleaned = cleaned[7:]
-        elif cleaned.startswith("```"):
-            cleaned = cleaned[3:]
-        if cleaned.endswith("```"):
-            cleaned = cleaned[:-3]
+        # Remove markdown code blocks
+        if "```json" in cleaned:
+            cleaned = cleaned.split("```json")[1].split("```")[0]
+        elif "```" in cleaned:
+            cleaned = cleaned.split("```")[1].split("```")[0]
+            
         return cleaned.strip()
 
     def design_workflow(self, user_request: str, available_models: List[str], feedback: str = None) -> Dict[str, Any]:

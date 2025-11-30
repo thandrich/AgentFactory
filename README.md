@@ -1,14 +1,14 @@
 # 🏭 AgentFactory
 
-**AgentFactory** is a collaborative multi-agent system designed to automate the creation of high-quality AI agents. Powered by **Google Gemini** and the **Agent Development Kit (ADK)**, it employs a "Team of Specialists" architecture to design, build, review, and test agents based on high-level user goals.
+**AgentFactory** is a collaborative multi-agent system designed to automate the creation of high-quality AI agent workflows. Powered by **Google Gemini** and the **Agent Development Kit (ADK)**, it employs a "Team of Specialists" architecture to design, build, review, and test agentic workflows based on high-level user goals. While itself a simplistic implementation of an even simpler idea it exemplifies the next step in the journey to Business As A Service (BAAS) in which customers provide funds and a buisness plan to a BAAS provider to build and run and end to end AI business for them.
 
 ## 🚀 Key Features
 
 *   **Team of Specialists Architecture**:
     *   **The Architect**: Analyzes goals and designs a comprehensive JSON Blueprint (Persona, Tools, State).
-    *   **The Engineer**: Implements the agent in Python using the Google ADK, adhering to strict syntax and best practices.
+    *   **The Engineer**: Implements the agents in Python using the Google ADK, adhering to strict syntax and best practices.
     *   **The Auditor**: Reviews the code for security, logic, and safety, providing feedback for iterative refinement.
-    *   **The QA Lead**: Validates the agent by executing it in a sandbox environment against the original criteria.
+    *   **The QA Lead**: Validates the agents by executing them in a sandbox environment against the original criteria.
 
 *   **Dual Operation Modes**:
     *   **🚀 YOLO Mode**: "You Only Look Once" - A fire-and-forget mode for rapid prototyping. Enter a goal, and the factory handles the entire pipeline automatically.
