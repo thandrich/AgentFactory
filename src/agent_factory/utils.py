@@ -185,30 +185,6 @@ class SubprocessAgentRunner:
         
         Args:
             query: The user's query
-            
-        Returns:
-            dict with {"response": str, "error": str or None}
-        """
-        if not self.process:
-            raise RuntimeError("Subprocess not started. Call start() first.")
-            
-        # Send query as JSON
-        request = json.dumps({"query": query}) + "\n"
-        self.process.stdin.write(request)
-        self.process.stdin.flush()
-        
-        # Read response
-        response_line = self.process.stdout.readline()
-        if response_line:
-            return json.loads(response_line)
-        else:
-            return {"response": None, "error": "No response from agent"}
-            
-    def stop(self):
-        """Stop the agent subprocess."""
-        if self.process:
-            try:
-                # Send exit signal
                 self.process.stdin.write(json.dumps({"query": "__EXIT__"}) + "\n")
                 self.process.stdin.flush()
                 self.process.wait(timeout=5)
@@ -218,4 +194,4 @@ class SubprocessAgentRunner:
             finally:
                 self.process = None
                 logger.info("Stopped agent subprocess")
-
+       

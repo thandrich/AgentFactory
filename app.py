@@ -18,69 +18,6 @@ from google.adk.runners import InMemoryRunner
 from agent_factory.utils import get_available_models, SubprocessAgentRunner
 import asyncio
 
-# ... (Previous config)
-
-# Helper for Chat Interface
-def render_chat_interface(agent_code, key_prefix, workspace_dir):
-    st.markdown("### 💬 Chat with your Agent")
-    
-    # Initialize chat state
-    if f"{key_prefix}_messages" not in st.session_state:
-        st.session_state[f"{key_prefix}_messages"] = []
-    if f"{key_prefix}_runner" not in st.session_state:
-        try:
-            runner = SubprocessAgentRunner(workspace_dir)
-            runner.start(agent_code)
-            st.session_state[f"{key_prefix}_runner"] = runner
-        except Exception as e:
-            st.error(f"Failed to start agent subprocess: {e}")
-            return
-
-    # Display chat history
-    for msg in st.session_state[f"{key_prefix}_messages"]:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
-
-    # Chat input
-    if prompt := st.chat_input("Say something to your agent..."):
-        # Add user message
-        st.session_state[f"{key_prefix}_messages"].append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
-
-        # Get agent response
-        with st.chat_message("assistant"):
-            runner = st.session_state[f"{key_prefix}_runner"]
-            with st.spinner("Agent is thinking..."):
-                try:
-                    result = runner.send_message(prompt)
-                    
-                    if result["error"]:
-                        st.error(f"Agent error: {result['error']}")
-                        response_text = f"Error: {result['error']}"
-                    else:
-                        response_text = result["response"] or "No response from agent."
-                    
-                    st.markdown(response_text)
-                    st.session_state[f"{key_prefix}_messages"].append({"role": "assistant", "content": response_text})
-                    
-                except Exception as e:
-                    st.error(f"Error during chat: {e}")
-
-# ... (YOLO Mode Update)
-# Inside YOLO Mode, after success:
-# if result["success"]:
-#     st.success(...)
-#     st.json(result)
-#     render_chat_interface(code, "yolo")
-
-# ... (Debug Mode Update)
-# Inside Debug Mode, SUCCESS state:
-# elif st.session_state.debug_state == "SUCCESS":
-#     st.success(...)
-#     render_chat_interface(st.session_state.code, "debug")
-
-
 st.set_page_config(page_title="AgentFactory", layout="wide")
 
 st.title("🏭 AgentFactory")

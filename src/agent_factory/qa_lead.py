@@ -45,41 +45,54 @@ class QALead:
     def test_agent(self, agent_code: str, test_query: str, evaluation_criteria: List[str] = None) -> Dict[str, Any]:
         """
         Executes the agent code and evaluates the result.
+        Instead of running main(), we instantiate the agent and test it with the query.
         """
         logger.info(f"QA Lead testing agent with query: {test_query}")
         
-        # 1. Execute the Agent Code
-        output_buffer = io.StringIO()
-        error_buffer = io.StringIO()
-        
+        # 1. Execute the Agent Code and extract the agent object
         try:
-            with contextlib.redirect_stdout(output_buffer), contextlib.redirect_stderr(error_buffer):
-                # Create a restricted global scope
-                exec_globals = {}
-                exec(agent_code, exec_globals)
+            # Create a restricted global scope
+            exec_globals = {}
+            exec(agent_code, exec_globals)
+            
+            # Get the agent object
+            if "agent" not in exec_globals:
+                return {
+                    "success": False,
+                    "error": "No 'agent' object found in generated code",
+                    "output": "",
+                    "logs": ""
+                }
+            
+            agent = exec_globals["agent"]
+            
+            # Run the agent with the test query
+            async def _run_agent():
+                runner = InMemoryRunner(agent=agent)
+                events = await runner.run_debug(test_query)
                 
-                # Explicitly run main() if it exists
-                if "main" in exec_globals:
-                    main_func = exec_globals["main"]
-                    if asyncio.iscoroutinefunction(main_func):
-                        asyncio.run(main_func())
-                    else:
-                        main_func()
-                
-            execution_output = output_buffer.getvalue()
-            execution_error = error_buffer.getvalue()
+                # Extract response
+                for event in reversed(events):
+                    if hasattr(event, 'content') and event.content and event.content.parts:
+                        for part in event.content.parts:
+                            if part.text:
+                                return part.text
+                return ""
+            
+            # Execute the agent test
+            execution_output = asyncio.run(_run_agent())
+            execution_error = ""
             
             logger.info(f"Agent Execution Output: {execution_output}")
-            if execution_error:
-                logger.warning(f"Agent Execution Error: {execution_error}")
                 
         except Exception as e:
             logger.error(f"Error executing agent: {e}")
+            import traceback
             return {
                 "success": False,
                 "error": f"Runtime Error: {str(e)}",
-                "output": output_buffer.getvalue(),
-                "logs": error_buffer.getvalue()
+                "output": "",
+                "logs": traceback.format_exc()
             }
 
         # 2. Evaluate with LLM Judge

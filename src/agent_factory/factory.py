@@ -76,11 +76,7 @@ class AgentFactory:
                 
                 # Engineer
                 notify_debug(f"Engineer: Start (Attempt {attempt+1})", {"blueprint": blueprint, "feedback": feedback})
-                if feedback:
-                    logger.info("Providing feedback to Engineer...")
-                    current_code = self.engineer.build_agent(blueprint) 
-                else:
-                    current_code = self.engineer.build_agent(blueprint)
+                current_code = self.engineer.build_agent(blueprint, feedback=feedback)
                 notify_debug(f"Engineer: End (Attempt {attempt+1})", {"code": current_code})
                     
                 # Auditor

@@ -1,7 +1,7 @@
 import logging
 import json
 import asyncio
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from google.adk.agents import LlmAgent
 from google.adk.models.google_llm import Gemini
 from google.adk.runners import InMemoryRunner
@@ -103,9 +103,10 @@ class Engineer:
         self.runner = InMemoryRunner(agent=self.agent)
         logger.info(f"Engineer initialized with model: {model_name}")
 
-    def build_agent(self, blueprint: Dict[str, Any]) -> str:
+    def build_agent(self, blueprint: Dict[str, Any], feedback: Optional[Dict[str, Any]] = None) -> str:
         """
         Generates Python code for the agent based on the blueprint.
+        If feedback is provided (from Auditor), incorporates it into the prompt.
         """
         if not blueprint or not isinstance(blueprint, dict):
             logger.error("Engineer received invalid blueprint")
@@ -113,7 +114,25 @@ class Engineer:
             
         logger.info(f"Engineer received blueprint for: {blueprint.get('agent_name', 'Unknown')}")
         
-        prompt = f"Blueprint:\n{json.dumps(blueprint, indent=2)}\n\nGenerate the Python code."
+        # Build the prompt with optional feedback
+        prompt = f"Blueprint:\n{json.dumps(blueprint, indent=2)}\n\n"
+        
+        if feedback:
+            logger.info("Incorporating Auditor feedback into generation...")
+            prompt += f"""
+PREVIOUS CODE REVIEW FEEDBACK:
+The code you previously generated was reviewed and needs improvements.
+
+Issues Found:
+{json.dumps(feedback.get('issues', []), indent=2)}
+
+Suggestions:
+{json.dumps(feedback.get('suggestions', []), indent=2)}
+
+Please generate IMPROVED code that addresses all the issues and suggestions above.
+"""
+        else:
+            prompt += "Generate the Python code."
         
         logger.info("Generating code...")
         
