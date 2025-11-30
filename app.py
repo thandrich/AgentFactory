@@ -18,6 +18,59 @@ from google.adk.runners import InMemoryRunner
 from agent_factory.utils import get_available_models, SubprocessAgentRunner
 import asyncio
 
+# Helper for Chat Interface
+def render_chat_interface(agent_code, key_prefix, workspace_dir):
+    st.markdown("### 💬 Chat with your Agent")
+    
+    # Initialize chat state
+    if f"{key_prefix}_messages" not in st.session_state:
+        st.session_state[f"{key_prefix}_messages"] = []
+    if f"{key_prefix}_agent" not in st.session_state:
+        try:
+            # Use direct loading instead of subprocess for now to avoid Windows issues
+            from agent_factory.utils import load_agent_from_code
+            agent = load_agent_from_code(agent_code)
+            st.session_state[f"{key_prefix}_agent"] = agent
+            st.session_state[f"{key_prefix}_runner"] = InMemoryRunner(agent=agent)
+        except Exception as e:
+            st.error(f"Failed to load agent: {e}")
+            return
+
+    # Display chat history
+    for msg in st.session_state[f"{key_prefix}_messages"]:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+
+    # Chat input
+    if prompt := st.chat_input("Say something to your agent..."):
+        # Add user message
+        st.session_state[f"{key_prefix}_messages"].append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
+
+        # Get agent response
+        with st.chat_message("assistant"):
+            runner = st.session_state[f"{key_prefix}_runner"]
+            with st.spinner("Agent is thinking..."):
+                try:
+                    # Run the agent async
+                    async def _run():
+                        events = await runner.run_debug(prompt)
+                        for event in reversed(events):
+                            if hasattr(event, 'content') and event.content and event.content.parts:
+                                for part in event.content.parts:
+                                    if part.text:
+                                        return part.text
+                        return "No response from agent."
+                    
+                    response_text = asyncio.run(_run())
+                    
+                    st.markdown(response_text)
+                    st.session_state[f"{key_prefix}_messages"].append({"role": "assistant", "content": response_text})
+                    
+                except Exception as e:
+                    st.error(f"Error during chat: {e}")
+
 st.set_page_config(page_title="AgentFactory", layout="wide")
 
 st.title("🏭 AgentFactory")
@@ -127,20 +180,6 @@ with tab1:
                 
                 # Run test
                 result = qa.test_agent(code, "Test Query (Auto)", evaluation_criteria=criteria)
-                
-                if result["success"]:
-                    st.success(f"Agent Execution Successful! Score: {result.get('score', 'N/A')}/5")
-                    st.json(result)
-                    # Get workspace from factory
-                    render_chat_interface(code, "yolo", factory.workspace_dir)
-                else:
-                    st.error(f"Agent Execution Failed: {result.get('error')}")
-                    
-                status.update(label="Build Complete!", state="complete", expanded=False)
-            else:
-                st.error("Failed to build agent.")
-                status.update(label="Build Failed", state="error")
-
 # --- DEBUG MODE ---
 with tab2:
     st.header("Debug Mode")
@@ -199,7 +238,9 @@ with tab2:
             factory.prepare_workspace(debug_goal) 
             
             with st.spinner("Architect is thinking..."):
-                blueprint = factory.architect.design_agent(debug_goal)
+                # Use new design_workflow method
+                available_models = [m["name"] for m in st.session_state.available_models]
+                blueprint = factory.architect.design_workflow(debug_goal, available_models)
                 st.session_state.blueprint = blueprint
                 add_log(f"Architect - {model_name}: Generated blueprint.")
                 st.session_state.debug_state = "ARCHITECT_DONE"
@@ -214,7 +255,7 @@ with tab2:
         st.json(st.session_state.blueprint)
         
         col1, col2 = st.columns(2)
-        if col1.button("Example: Continue to Engineer"):
+        if col1.button("Continue to Engineer"):
             st.session_state.debug_state = "ENGINEER_READY"
             st.session_state.attempt = 1
             st.rerun()
@@ -234,13 +275,20 @@ with tab2:
             factory.prepare_workspace(debug_goal)
             
             with st.spinner("Engineer is coding..."):
-                if st.session_state.feedback:
-                    code = factory.engineer.build_agent(st.session_state.blueprint) # In real impl, pass feedback
-                else:
-                    code = factory.engineer.build_agent(st.session_state.blueprint)
+                # Pick the first agent for debug mode simplicity
+                agents = st.session_state.blueprint.get("agents", [])
+                if not agents:
+                    st.error("No agents found in blueprint!")
+                    st.stop()
+                    
+                target_agent = agents[0]
+                context = st.session_state.blueprint.get("end_to_end_context", "")
+                
+                # Engineer now takes agent_def and context
+                code = factory.engineer.build_agent(target_agent, context)
                 
                 st.session_state.code = code
-                add_log(f"Engineer - {model_name}: Generated code (Attempt {st.session_state.attempt})")
+                add_log(f"Engineer - {model_name}: Generated code for {target_agent.get('agent_name')} (Attempt {st.session_state.attempt})")
                 st.session_state.debug_state = "ENGINEER_DONE"
                 st.rerun()
                 
@@ -270,15 +318,19 @@ with tab2:
             factory.prepare_workspace(debug_goal)
             
             with st.spinner("Auditor is reviewing..."):
-                result = factory.auditor.review_code(st.session_state.code, st.session_state.blueprint)
+                agents = st.session_state.blueprint.get("agents", [])
+                target_agent = agents[0]
+                
+                # Auditor now takes code and agent_def
+                result = factory.auditor.review_agent(st.session_state.code, target_agent)
                 add_log(f"Auditor - {model_name}: Review complete: {result}")
                 
-                if result is True:
+                if result["status"] == "PASS":
                     st.session_state.debug_state = "SUCCESS"
                     # Save
                     factory.save_agent(st.session_state.code, st.session_state.workspace_dir)
                 else:
-                    st.session_state.feedback = result
+                    st.session_state.feedback = result.get("feedback") or result.get("reasoning")
                     if st.session_state.attempt < max_retries:
                         st.session_state.debug_state = "RETRY_NEEDED"
                     else:

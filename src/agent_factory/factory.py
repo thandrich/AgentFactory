@@ -43,8 +43,9 @@ class AgentFactory:
         
     def create_agent(self, goal: str, max_retries: int = 3, debug_callback: Optional[callable] = None) -> tuple[Optional[str], Optional[Dict[str, Any]]]:
         """
-        Creates an agent based on the goal.
-        Returns (generated_code, blueprint) if successful, (None, None) otherwise.
+        Creates a multi-agent system based on the goal.
+        Returns (generated_code, blueprint) for the LAST agent created (for now), 
+        or (None, None) if failed.
         """
         workspace_dir, _ = self.prepare_workspace(goal)
         
@@ -58,7 +59,10 @@ class AgentFactory:
         try:
             # Step 1: Architect
             notify_debug("Architect: Start", {"goal": goal})
-            blueprint = self.architect.design_agent(goal)
+            # We pass a dummy model list for now, or fetch from utils if possible. 
+            # Ideally this should come from app.py or config.
+            available_models = ["gemini-2.5-flash", "gemini-1.5-pro"] 
+            blueprint = self.architect.design_workflow(goal, available_models)
             notify_debug("Architect: End", blueprint)
             
             if "error" in blueprint:
@@ -67,36 +71,65 @@ class AgentFactory:
                 
             logger.info("Blueprint generated successfully.")
             
-            # Step 2 & 3: Engineer & Auditor Loop
-            current_code = None
-            feedback = None
+            agents_to_build = blueprint.get("agents", [])
+            context = blueprint.get("end_to_end_context", "")
             
-            for attempt in range(max_retries + 1):
-                logger.info(f"Attempt {attempt + 1}/{max_retries + 1}")
+            last_code = None
+            
+            # Step 2 & 3: Engineer & Auditor Loop for EACH agent
+            for agent_def in agents_to_build:
+                agent_name = agent_def.get("agent_name", "Unknown")
+                logger.info(f"Building agent: {agent_name}")
                 
-                # Engineer
-                notify_debug(f"Engineer: Start (Attempt {attempt+1})", {"blueprint": blueprint, "feedback": feedback})
-                current_code = self.engineer.build_agent(blueprint, feedback=feedback)
-                notify_debug(f"Engineer: End (Attempt {attempt+1})", {"code": current_code})
-                    
-                # Auditor
-                notify_debug(f"Auditor: Start (Attempt {attempt+1})", {"code": current_code})
-                review_result = self.auditor.review_code(current_code, blueprint)
-                notify_debug(f"Auditor: End (Attempt {attempt+1})", review_result)
+                current_code = None
+                feedback = None
+                success = False
                 
-                if review_result is True:
-                    logger.info("Auditor approved the code!")
+                for attempt in range(max_retries + 1):
+                    logger.info(f"Attempt {attempt + 1}/{max_retries + 1} for {agent_name}")
                     
-                    # Save code to workspace
-                    self.save_agent(current_code, workspace_dir)
+                    # Engineer
+                    notify_debug(f"Engineer: Start ({agent_name} - Attempt {attempt+1})", {"agent_def": agent_def})
+                    # Engineer now takes agent_def and context
+                    current_code = self.engineer.build_agent(agent_def, context)
+                    notify_debug(f"Engineer: End ({agent_name} - Attempt {attempt+1})", {"code": current_code})
+                        
+                    # Auditor
+                    notify_debug(f"Auditor: Start ({agent_name} - Attempt {attempt+1})", {"code": current_code})
+                    # Auditor now takes code and agent_def
+                    review_result = self.auditor.review_agent(current_code, agent_def)
+                    notify_debug(f"Auditor: End ({agent_name} - Attempt {attempt+1})", review_result)
                     
-                    return current_code, blueprint
-                else:
-                    feedback = review_result
-                    logger.warning(f"Auditor rejected the code. Issues: {feedback['issues']}")
-                    
-            logger.error("Max retries reached. Agent creation failed.")
-            return None, None
+                    if review_result["status"] == "PASS":
+                        logger.info(f"Auditor approved {agent_name}!")
+                        
+                        # Save code to workspace with agent name
+                        file_path = os.path.join(workspace_dir, f"{agent_name}.py")
+                        with open(file_path, "w") as f:
+                            f.write(current_code)
+                        logger.info(f"Agent code saved to: {file_path}")
+                        
+                        last_code = current_code
+                        success = True
+                        break
+                    else:
+                        # Feedback is implicitly handled by Engineer re-generating based on prompt?
+                        # The current Engineer implementation in Step 1141 does NOT take feedback explicitly.
+                        # It just takes agent_def and context.
+                        # To support retry with feedback, we'd need to update Engineer again or 
+                        # append feedback to the context/agent_def for the next iteration.
+                        # For now, we just retry, hoping the stochastic nature fixes it, 
+                        # or we can append feedback to the context.
+                        logger.warning(f"Auditor rejected {agent_name}. Reason: {review_result.get('reasoning')}")
+                        # Append feedback to context for next attempt (hacky but works with current Engineer)
+                        context += f"\n\n[Previous Attempt Feedback for {agent_name}]: {review_result.get('feedback')}"
+                
+                if not success:
+                    logger.error(f"Failed to build agent: {agent_name}")
+                    return None, None
+
+            # Return the last agent's code for the UI to display/run (simplification)
+            return last_code, blueprint
             
         except InterruptedError:
             logger.info("Process stopped by user.")

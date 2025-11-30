@@ -1,0 +1,7 @@
+// Agent Workflow
+digraph {
+	rankdir=LR
+	NaturalLanguageParser [label=<NaturalLanguageParser<BR/><FONT POINT-SIZE='10'>Model: models/gemini-2.5-pro</FONT><BR/><FONT POINT-SIZE='10'>In: ['natural_language_query']</FONT><BR/><FONT POINT-SIZE='10'>Out: ['mathematical_expression']</FONT>> shape=box style=rounded]
+	ExpressionCalculator [label=<ExpressionCalculator<BR/><FONT POINT-SIZE='10'>Model: models/gemini-2.5-flash</FONT><BR/><FONT POINT-SIZE='10'>In: ['mathematical_expression']</FONT><BR/><FONT POINT-SIZE='10'>Out: ['calculation_result']</FONT>> shape=box style=rounded]
+	NaturalLanguageParser -> ExpressionCalculator
+}
