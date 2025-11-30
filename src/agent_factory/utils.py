@@ -110,3 +110,112 @@ def load_agent_from_code(code: str):
         raise ValueError("The generated code does not define an 'agent' variable.")
         
     return local_scope["agent"]
+
+class SubprocessAgentRunner:
+    """
+    Runs a generated agent in a subprocess with isolated dependencies.
+    """
+    def __init__(self, workspace_dir: str):
+        """
+        Initialize the subprocess runner.
+        
+        Args:
+            workspace_dir: Path to the workspace containing agent.py
+        """
+        self.workspace_dir = workspace_dir
+        self.process = None
+        self.dependencies = []
+        
+    def _extract_dependencies(self, code: str) -> list:
+        """Extract dependencies from the DEPENDENCIES comment block."""
+        deps = []
+        in_deps_block = False
+        for line in code.split('\n'):
+            if line.strip().startswith('# DEPENDENCIES:'):
+                in_deps_block = True
+                continue
+            if in_deps_block:
+                if line.strip().startswith('#'):
+                    dep = line.strip()[1:].strip()
+                    if dep:
+                        deps.append(dep)
+                else:
+                    break
+        return deps
+        
+    def start(self, code: str):
+        """
+        Start the agent subprocess.
+        
+        Args:
+            code: The generated agent code
+        """
+        import subprocess
+        import shutil
+        
+        # Extract dependencies
+        self.dependencies = self._extract_dependencies(code)
+        
+        # Copy agent_adapter.py to workspace
+        adapter_src = os.path.join(os.path.dirname(__file__), "agent_adapter.py")
+        adapter_dst = os.path.join(self.workspace_dir, "agent_adapter.py")
+        shutil.copy(adapter_src, adapter_dst)
+        
+        # Build the command with dependencies
+        cmd = ["uv", "run"]
+        for dep in self.dependencies:
+            cmd.extend(["--with", dep])
+        cmd.extend(["python", "agent_adapter.py"])
+        
+        # Start the subprocess
+        self.process = subprocess.Popen(
+            cmd,
+            cwd=self.workspace_dir,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1
+        )
+        logger.info(f"Started agent subprocess with dependencies: {self.dependencies}")
+        
+    def send_message(self, query: str) -> dict:
+        """
+        Send a message to the agent and get the response.
+        
+        Args:
+            query: The user's query
+            
+        Returns:
+            dict with {"response": str, "error": str or None}
+        """
+        if not self.process:
+            raise RuntimeError("Subprocess not started. Call start() first.")
+            
+        # Send query as JSON
+        request = json.dumps({"query": query}) + "\n"
+        self.process.stdin.write(request)
+        self.process.stdin.flush()
+        
+        # Read response
+        response_line = self.process.stdout.readline()
+        if response_line:
+            return json.loads(response_line)
+        else:
+            return {"response": None, "error": "No response from agent"}
+            
+    def stop(self):
+        """Stop the agent subprocess."""
+        if self.process:
+            try:
+                # Send exit signal
+                self.process.stdin.write(json.dumps({"query": "__EXIT__"}) + "\n")
+                self.process.stdin.flush()
+                self.process.wait(timeout=5)
+            except:
+                self.process.terminate()
+                self.process.wait(timeout=5)
+            finally:
+                self.process = None
+                logger.info("Stopped agent subprocess")
+

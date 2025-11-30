@@ -15,13 +15,13 @@ from agent_factory.factory import AgentFactory
 from agent_factory.qa_lead import QALead
 # ... (Previous imports)
 from google.adk.runners import InMemoryRunner
-from agent_factory.utils import get_available_models, load_agent_from_code
+from agent_factory.utils import get_available_models, SubprocessAgentRunner
 import asyncio
 
 # ... (Previous config)
 
 # Helper for Chat Interface
-def render_chat_interface(agent_code, key_prefix):
+def render_chat_interface(agent_code, key_prefix, workspace_dir):
     st.markdown("### 💬 Chat with your Agent")
     
     # Initialize chat state
@@ -29,10 +29,11 @@ def render_chat_interface(agent_code, key_prefix):
         st.session_state[f"{key_prefix}_messages"] = []
     if f"{key_prefix}_runner" not in st.session_state:
         try:
-            agent = load_agent_from_code(agent_code)
-            st.session_state[f"{key_prefix}_runner"] = InMemoryRunner(agent=agent)
+            runner = SubprocessAgentRunner(workspace_dir)
+            runner.start(agent_code)
+            st.session_state[f"{key_prefix}_runner"] = runner
         except Exception as e:
-            st.error(f"Failed to load agent for chat: {e}")
+            st.error(f"Failed to start agent subprocess: {e}")
             return
 
     # Display chat history
@@ -52,27 +53,13 @@ def render_chat_interface(agent_code, key_prefix):
             runner = st.session_state[f"{key_prefix}_runner"]
             with st.spinner("Agent is thinking..."):
                 try:
-                    # Run the agent
-                    # We need to run async in sync streamlit
-                    # Creating a new loop for this thread if needed
-                    try:
-                        loop = asyncio.get_event_loop()
-                    except RuntimeError:
-                        loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(loop)
+                    result = runner.send_message(prompt)
                     
-                    events = loop.run_until_complete(runner.run_debug(prompt))
-                    
-                    # Extract text response
-                    response_text = "No response text found."
-                    for event in reversed(events):
-                        if hasattr(event, 'content') and event.content and event.content.parts:
-                            for part in event.content.parts:
-                                if part.text:
-                                    response_text = part.text
-                                    break
-                            if response_text != "No response text found.":
-                                break
+                    if result["error"]:
+                        st.error(f"Agent error: {result['error']}")
+                        response_text = f"Error: {result['error']}"
+                    else:
+                        response_text = result["response"] or "No response from agent."
                     
                     st.markdown(response_text)
                     st.session_state[f"{key_prefix}_messages"].append({"role": "assistant", "content": response_text})
@@ -207,7 +194,8 @@ with tab1:
                 if result["success"]:
                     st.success(f"Agent Execution Successful! Score: {result.get('score', 'N/A')}/5")
                     st.json(result)
-                    render_chat_interface(code, "yolo")
+                    # Get workspace from factory
+                    render_chat_interface(code, "yolo", factory.workspace_dir)
                 else:
                     st.error(f"Agent Execution Failed: {result.get('error')}")
                     
@@ -381,7 +369,7 @@ with tab2:
         st.success("🎉 Agent Created Successfully!")
         st.write(f"Saved to: {st.session_state.workspace_dir}")
         
-        render_chat_interface(st.session_state.code, "debug")
+        render_chat_interface(st.session_state.code, "debug", st.session_state.workspace_dir)
         
         if st.button("Start Over"):
             st.session_state.debug_state = "IDLE"

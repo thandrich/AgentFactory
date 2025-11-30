@@ -81,8 +81,18 @@ class Engineer:
         3. Use `gemini-2.5-flash` as the model.
         4. Include the `if __name__ == "__main__":` block using `asyncio.run(main())`.
         5. Ensure robust docstrings for tools.
+        6. **CRITICAL**: At the TOP of your output, include a comment block listing all required dependencies:
+           ```python
+           # DEPENDENCIES:
+           # google-adk
+           # python-dotenv
+           # <any other packages needed by tools>
+           ```
         
-        Output ONLY the Python code. Do not include markdown code blocks.
+        Output format:
+        - Start with the DEPENDENCIES comment block
+        - Then output the Python code
+        - Do NOT include markdown code blocks (no ``` markers)
         """
         
         self.agent = LlmAgent(
