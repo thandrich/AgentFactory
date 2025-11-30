@@ -13,7 +13,86 @@ sys.path.append(os.path.join(os.getcwd(), "src"))
 
 from agent_factory.factory import AgentFactory
 from agent_factory.qa_lead import QALead
-from agent_factory.utils import get_available_models
+# ... (Previous imports)
+from google.adk.runners import InMemoryRunner
+from agent_factory.utils import get_available_models, load_agent_from_code
+import asyncio
+
+# ... (Previous config)
+
+# Helper for Chat Interface
+def render_chat_interface(agent_code, key_prefix):
+    st.markdown("### 💬 Chat with your Agent")
+    
+    # Initialize chat state
+    if f"{key_prefix}_messages" not in st.session_state:
+        st.session_state[f"{key_prefix}_messages"] = []
+    if f"{key_prefix}_runner" not in st.session_state:
+        try:
+            agent = load_agent_from_code(agent_code)
+            st.session_state[f"{key_prefix}_runner"] = InMemoryRunner(agent=agent)
+        except Exception as e:
+            st.error(f"Failed to load agent for chat: {e}")
+            return
+
+    # Display chat history
+    for msg in st.session_state[f"{key_prefix}_messages"]:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+
+    # Chat input
+    if prompt := st.chat_input("Say something to your agent..."):
+        # Add user message
+        st.session_state[f"{key_prefix}_messages"].append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
+
+        # Get agent response
+        with st.chat_message("assistant"):
+            runner = st.session_state[f"{key_prefix}_runner"]
+            with st.spinner("Agent is thinking..."):
+                try:
+                    # Run the agent
+                    # We need to run async in sync streamlit
+                    # Creating a new loop for this thread if needed
+                    try:
+                        loop = asyncio.get_event_loop()
+                    except RuntimeError:
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                    
+                    events = loop.run_until_complete(runner.run_debug(prompt))
+                    
+                    # Extract text response
+                    response_text = "No response text found."
+                    for event in reversed(events):
+                        if hasattr(event, 'content') and event.content and event.content.parts:
+                            for part in event.content.parts:
+                                if part.text:
+                                    response_text = part.text
+                                    break
+                            if response_text != "No response text found.":
+                                break
+                    
+                    st.markdown(response_text)
+                    st.session_state[f"{key_prefix}_messages"].append({"role": "assistant", "content": response_text})
+                    
+                except Exception as e:
+                    st.error(f"Error during chat: {e}")
+
+# ... (YOLO Mode Update)
+# Inside YOLO Mode, after success:
+# if result["success"]:
+#     st.success(...)
+#     st.json(result)
+#     render_chat_interface(code, "yolo")
+
+# ... (Debug Mode Update)
+# Inside Debug Mode, SUCCESS state:
+# elif st.session_state.debug_state == "SUCCESS":
+#     st.success(...)
+#     render_chat_interface(st.session_state.code, "debug")
+
 
 st.set_page_config(page_title="AgentFactory", layout="wide")
 
@@ -128,6 +207,7 @@ with tab1:
                 if result["success"]:
                     st.success(f"Agent Execution Successful! Score: {result.get('score', 'N/A')}/5")
                     st.json(result)
+                    render_chat_interface(code, "yolo")
                 else:
                     st.error(f"Agent Execution Failed: {result.get('error')}")
                     
@@ -300,6 +380,9 @@ with tab2:
     elif st.session_state.debug_state == "SUCCESS":
         st.success("🎉 Agent Created Successfully!")
         st.write(f"Saved to: {st.session_state.workspace_dir}")
+        
+        render_chat_interface(st.session_state.code, "debug")
+        
         if st.button("Start Over"):
             st.session_state.debug_state = "IDLE"
             st.rerun()

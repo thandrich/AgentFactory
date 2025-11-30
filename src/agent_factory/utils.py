@@ -95,3 +95,18 @@ def get_available_models() -> List[Dict[str, Any]]:
     except Exception as e:
         logger.error(f"Error fetching models: {e}")
         return []
+
+def load_agent_from_code(code: str):
+    """
+    Executes the provided code string and returns the 'agent' object defined within it.
+    """
+    local_scope = {}
+    try:
+        exec(code, {}, local_scope)
+    except Exception as e:
+        raise ValueError(f"Failed to execute agent code: {e}")
+        
+    if "agent" not in local_scope:
+        raise ValueError("The generated code does not define an 'agent' variable.")
+        
+    return local_scope["agent"]
