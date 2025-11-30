@@ -114,3 +114,43 @@ class Auditor:
                 "issues": [f"Auditor failed to parse review: {e}"],
                 "suggestions": ["Retry review"]
             }
+
+    def review_agent(self, code: str, agent_definition: Dict[str, Any]) -> Dict[str, str]:
+        """
+        Reviews the agent code against the agent definition.
+        Returns a standardized result dictionary matching QA Lead's interface.
+        
+        Args:
+            code: The Python source code to review
+            agent_definition: The agent definition dict from the Architect's blueprint
+            
+        Returns:
+            Dict with keys: status ("PASS"/"FAIL"), reasoning, feedback (optional)
+        """
+        logger.info(f"Auditor reviewing agent: {agent_definition.get('agent_name', 'Unknown')}")
+        
+        result = self.review_code(code, agent_definition)
+        
+        # Convert boolean/dict result to standardized format
+        if result is True:
+            return {
+                "status": "PASS",
+                "reasoning": "Code passed all review criteria.",
+                "feedback": ""
+            }
+        elif isinstance(result, dict):
+            issues_str = "\n".join(result.get("issues", []))
+            suggestions_str = "\n".join(result.get("suggestions", []))
+            
+            return {
+                "status": "FAIL",
+                "reasoning": issues_str if issues_str else "Code failed review.",
+                "feedback": suggestions_str
+            }
+        else:
+            # Unexpected format
+            return {
+                "status": "FAIL",
+                "reasoning": "Auditor returned unexpected result format.",
+                "feedback": "Please retry the review."
+            }

@@ -125,14 +125,35 @@ class Architect:
             return f"Error generating flowchart: {str(e)}"
 
     def _clean_json_response(self, text: str) -> str:
-        """Helper to clean markdown code blocks from LLM response."""
+        """Helper to clean markdown code blocks from LLM response with multiple strategies."""
         cleaned = text.strip()
-        # Remove markdown code blocks
+        
+        # Strategy 1: Look for JSON code blocks
         if "```json" in cleaned:
             cleaned = cleaned.split("```json")[1].split("```")[0]
         elif "```" in cleaned:
-            cleaned = cleaned.split("```")[1].split("```")[0]
-            
+            # Try to extract content between first pair of backticks
+            parts = cleaned.split("```")
+            if len(parts) >= 3:
+                cleaned = parts[1]
+        
+        # Strategy 2: Look for JSON object markers
+        if "{" in cleaned and "}" in cleaned:
+            start = cleaned.find("{")
+            # Find the matching closing brace
+            brace_count = 0
+            end = -1
+            for i in range(start, len(cleaned)):
+                if cleaned[i] == "{":
+                    brace_count += 1
+                elif cleaned[i] == "}":
+                    brace_count -= 1
+                    if brace_count == 0:
+                        end = i + 1
+                        break
+            if end > start:
+                cleaned = cleaned[start:end]
+                
         return cleaned.strip()
 
     def design_workflow(self, user_request: str, available_models: List[str], feedback: str = None) -> Dict[str, Any]:
@@ -153,32 +174,88 @@ class Architect:
         if feedback:
             prompt += f"\n\nUser Feedback on previous design: {feedback}\nPlease refine the design."
 
-        async def _run_step():
+        async def _run_with_retry():
+            """Single async function that handles both initial attempt and retry to avoid event loop issues"""
+            # First attempt
             events = await self.runner.run_debug(prompt)
-            final_content = ""
+            response_text = ""
             for event in reversed(events):
                 if hasattr(event, 'content') and event.content and event.content.parts:
                     for part in event.content.parts:
                         if part.text:
-                            final_content = part.text
-                            return final_content
-            return final_content
-
-        try:
-            response_text = asyncio.run(_run_step())
+                            response_text = part.text
+                            break
+                            
+            logger.info(f"Architect raw response length: {len(response_text)} chars")
             
-            # Try to parse JSON
+            # Try to parse JSON from first response
             potential_json = self._clean_json_response(response_text)
+            
             try:
                 data = json.loads(potential_json)
-                if "agents" in data:
+                if "agents" in data and data["agents"]:
+                    logger.info(f"✅ Successfully parsed blueprint with {len(data['agents'])} agents")
                     return data
-            except json.JSONDecodeError:
-                pass
+                else:
+                    logger.warning("Parsed JSON but missing 'agents' key or empty agents list")
+            except json.JSONDecodeError as e:
+                logger.warning(f"JSON parsing failed on first attempt: {e}")
                 
-            # If not valid JSON, return the text wrapped (or handle error)
-            return {"error": "Architect did not return valid JSON", "raw_response": response_text}
+            # Retry with explicit JSON-only request (still in same async context)
+            logger.info("🔄 Retrying with explicit JSON request...")
+            retry_prompt = f"""
+            You previously provided a workflow design, but it was not in valid JSON format.
+            
+            Please output ONLY the JSON blueprint in this exact structure (no additional text):
+            
+            {{
+                "end_to_end_context": "description",
+                "agents": [
+                    {{
+                        "agent_name": "name",
+                        "role": "role",
+                        "suggested_model": "model",
+                        "goal": "goal",
+                        "inputs": [],
+                        "outputs": [],
+                        "dependencies": [],
+                        "instructions": "instructions"
+                    }}
+                ]
+            }}
+            
+            For the original request: {user_request}
+            """
+            
+            # Second attempt (still in same async context - no new asyncio.run())
+            retry_events = await self.runner.run_debug(retry_prompt)
+            retry_response = ""
+            for event in reversed(retry_events):
+                if hasattr(event, 'content') and event.content and event.content.parts:
+                    for part in event.content.parts:
+                        if part.text:
+                            retry_response = part.text
+                            break
+                            
+            retry_json = self._clean_json_response(retry_response)
+            
+            try:
+                data = json.loads(retry_json)
+                if "agents" in data:
+                    logger.info(f"✅ Retry successful! Parsed blueprint with {len(data.get('agents', []))} agents")
+                    return data
+            except json.JSONDecodeError as e2:
+                logger.error(f"JSON parsing failed on retry: {e2}")
+                
+            # If still failing, return error
+            return {
+                "error": "Architect did not return valid JSON after retry",
+                "raw_response": response_text[:500]
+            }
 
+        try:
+            # Single asyncio.run() call for entire process
+            return asyncio.run(_run_with_retry())
         except Exception as e:
             logger.error(f"Agent execution error: {e}")
             return {"error": str(e)}
