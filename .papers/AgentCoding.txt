@@ -1,0 +1,109 @@
+ADK: Python Developer’s Guide
+The Agent Development Kit (ADK) abstracts the complexities of orchestrating LLM agents. Instead of writing manual loops, state management parsers, or tool definitions, you define the structure and instruction, and the ADK handles the execution flow.
+1. Core Features (What You Don't Have to Build)
+The ADK handles the following "plumbing" automatically, so you don't have to engineer it:
+State Management (output_key):
+No Manual Context Passing: You do not need to manually grab the output of Agent A and pass it to Agent B.
+Mechanism:[1][2][3][4][5] By defining an output_key, the agent automatically writes its result into a shared Session State. Subsequent agents can read this simply by referencing {key_name} in their instructions.
+Tool Schema Generation:
+No JSON Schemas: You pass standard Python functions or other Agents into tools=[]. The ADK automatically generates the JSON schema and function definitions required by the LLM API.
+Agent-as-a-Tool (AgentTool):
+Recursive Structures: You can wrap any fully configured agent in AgentTool(agent_instance). This allows a "Root" agent to call a "Sub-agent" just like it calls a calculator function. The ADK manages the sub-agent's execution lifecycle automatically.
+Workflow Control:
+Concurrency: ParallelAgent handles async gathering of results automatically.
+Looping: LoopAgent handles iteration limits (max_iterations) and exit conditions without you writing while loops.
+Code Execution:
+Sandboxing: BuiltInCodeExecutor provides a secure environment for the LLM to write and run Python code, parsing the stdout automatically.
+2. Agent Design Template
+Use this boilerplate to create consistent agents. Copy and fill in the fields.
+code
+Python
+from adk.core import Agent, AgentTool, FunctionTool
+from adk.models import Gemini
+
+# 1. Define Model Config (Reuse this for multiple agents)
+model_config = Gemini(
+    model="gemini-2.5-flash-lite",
+    retry_options={"max_retries": 3} # Optional: Auto-handle transient API errors
+)
+
+# 2. Define the Agent
+my_agent = Agent(
+    # [REQUIRED] Unique identifier for logging and debugging
+    name="MyPurposeAgent",
+
+    # [REQUIRED] The brain of the agent
+    model=model_config,
+
+    # [REQUIRED] System Prompt. 
+    # TIP: Use {session_variable} to inject data from previous agents.
+    instruction="""
+    You are a [ROLE]. Your goal is to [GOAL].
+    
+    Context from previous steps:
+    {previous_agent_output_key}
+
+    Rules:
+    1. [Rule 1]
+    2. [Rule 2]
+    """,
+
+    # [OPTIONAL] List of Python functions or AgentTools
+    tools=[
+        # FunctionTool(my_python_func),
+        # AgentTool(sub_agent_instance)
+    ],
+
+    # [OPTIONAL] Where to store the result in the session dictionary.
+    # If omitted, output is returned but not stored in shared state.
+    output_key="my_agent_result",
+)
+3. Workflow Types & Running Agents
+The ADK provides specific classes to run agents in different patterns.
+A. Sequential (Chain of Command)
+Use SequentialAgent when step B requires data from step A. The ADK passes the shared state automatically.
+code
+Python
+root = SequentialAgent(
+    name="Pipeline",
+    sub_agents=[researcher, summarizer, email_drafter]
+)
+B. Parallel (Simultaneous Execution)
+Use ParallelAgent for tasks that don't depend on each other. The ADK runs them concurrently and merges results.
+code
+Python
+team = ParallelAgent(
+    name="ResearchTeam",
+    sub_agents=[tech_researcher, market_researcher]
+)
+C. Loop (Iterative Refinement)
+Use LoopAgent for tasks requiring quality checks (Write -> Critique -> Refine).
+code
+Python
+loop = LoopAgent(
+    name="RefinementLoop",
+    sub_agents=[critic, refiner],
+    max_iterations=3
+)
+How to Run Your Agents
+Once your root agent is defined, you execute it by passing the initial user input (and optionally an initial state).
+Option 1: Simple Run (String Input)
+If your agent expects a direct prompt.
+code
+Python
+response = root_agent.run(input="Research the history of sourdough bread.")
+print(response.output)
+Option 2: Run with State (Structured Input)
+If your agent's instructions reference placeholders (e.g., {topic}), pass them in a dictionary. This dictionary becomes the initial Session State.
+code
+Python
+initial_state = {
+    "topic": "Quantum Computing",
+    "target_audience": "5th graders"
+}
+
+# The agent executes, and the final state (containing all output_keys) is returned.
+final_state = root_agent.run(state=initial_state)
+
+print(f"Final Summary: {final_state['executive_summary']}")
+print(f"Intermediate Research: {final_state['research_findings']}")
