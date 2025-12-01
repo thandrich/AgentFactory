@@ -1,109 +1,301 @@
-ADK: Python Developer’s Guide
-The Agent Development Kit (ADK) abstracts the complexities of orchestrating LLM agents. Instead of writing manual loops, state management parsers, or tool definitions, you define the structure and instruction, and the ADK handles the execution flow.
-1. Core Features (What You Don't Have to Build)
-The ADK handles the following "plumbing" automatically, so you don't have to engineer it:
-State Management (output_key):
-No Manual Context Passing: You do not need to manually grab the output of Agent A and pass it to Agent B.
-Mechanism:[1][2][3][4][5] By defining an output_key, the agent automatically writes its result into a shared Session State. Subsequent agents can read this simply by referencing {key_name} in their instructions.
-Tool Schema Generation:
-No JSON Schemas: You pass standard Python functions or other Agents into tools=[]. The ADK automatically generates the JSON schema and function definitions required by the LLM API.
-Agent-as-a-Tool (AgentTool):
-Recursive Structures: You can wrap any fully configured agent in AgentTool(agent_instance). This allows a "Root" agent to call a "Sub-agent" just like it calls a calculator function. The ADK manages the sub-agent's execution lifecycle automatically.
-Workflow Control:
-Concurrency: ParallelAgent handles async gathering of results automatically.
-Looping: LoopAgent handles iteration limits (max_iterations) and exit conditions without you writing while loops.
-Code Execution:
-Sandboxing: BuiltInCodeExecutor provides a secure environment for the LLM to write and run Python code, parsing the stdout automatically.
-2. Agent Design Template
-Use this boilerplate to create consistent agents. Copy and fill in the fields.
-code
-Python
-from adk.core import Agent, AgentTool, FunctionTool
-from adk.models import Gemini
+Here is the consolidated **ADK (Agent Development Kit) Coding Bible**. This document extracts the core architectural patterns, classes, and workflows required to build, orchestrate, observe, and deploy agents using `google.adk` and `google.genai`.
 
-# 1. Define Model Config (Reuse this for multiple agents)
+***
+
+# ADK & GenAI Library Reference
+
+## 1. Core Setup & Configuration
+**Imports & Model Initialization**
+The core building blocks are `LlmAgent` (the brain), `Gemini` (the model), and `Runner` (the execution engine).
+
+```python
+from google.genai import types
+from google.adk.models.google_llm import Gemini
+from google.adk.agents import LlmAgent
+from google.adk.runners import InMemoryRunner
+
+# 1. Configure Retries (Best Practice)
+retry_config = types.HttpRetryOptions(
+    attempts=5,
+    exp_base=7,
+    initial_delay=1,
+    http_status_codes=[429, 500, 503, 504],
+)
+
+# 2. Define the Model
 model_config = Gemini(
-    model="gemini-2.5-flash-lite",
-    retry_options={"max_retries": 3} # Optional: Auto-handle transient API errors
+    model="gemini-2.5-flash-lite", 
+    retry_options=retry_config
 )
+```
 
-# 2. Define the Agent
-my_agent = Agent(
-    # [REQUIRED] Unique identifier for logging and debugging
-    name="MyPurposeAgent",
+## 2. Tool Creation (Custom & File I/O)
+Tools connect agents to the outside world. Use strict type hinting and docstrings.
 
-    # [REQUIRED] The brain of the agent
+**Pattern: Custom Python Tool (with Context Access)**
+Tools can access the `ToolContext` to read/write shared state or manage execution flow.
+
+```python
+from google.adk.tools.tool_context import ToolContext
+from typing import Dict, Any
+
+# Example: Writing files (File I/O)
+def write_to_file(filename: str, content: str, tool_context: ToolContext) -> Dict[str, Any]:
+    """
+    Writes content to a file.
+    Args:
+        filename: Name of the file.
+        content: Text content to write.
+    """
+    try:
+        with open(filename, 'w') as f:
+            f.write(content)
+        return {"status": "success", "file": filename}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+# Registering the tool
+agent = LlmAgent(
     model=model_config,
+    name="file_writer",
+    instruction="You can write files.",
+    tools=[write_to_file] # Pass function reference
+)
+```
 
-    # [REQUIRED] System Prompt. 
-    # TIP: Use {session_variable} to inject data from previous agents.
-    instruction="""
-    You are a [ROLE]. Your goal is to [GOAL].
+## 3. Multi-Agent Orchestration
+Use these patterns for handover, delegation, and review loops.
+
+### A. Sequential Handover (The Pipeline)
+Use `SequentialAgent` to pass output from one agent to the next automatically.
+
+```python
+from google.adk.agents import SequentialAgent
+
+# Define individual agents
+researcher = LlmAgent(model=model_config, name="researcher", output_key="research_data")
+writer = LlmAgent(
+    model=model_config, 
+    name="writer", 
+    # {research_data} is injected from the previous agent's output
+    instruction="Write a report based on: {research_data}"
+)
+
+# Orchestrate
+pipeline = SequentialAgent(
+    name="ResearchPipeline",
+    sub_agents=[researcher, writer]
+)
+```
+
+### B. Agent-as-a-Tool (Delegation)
+An agent can call another agent as if it were a function using `AgentTool`.
+
+```python
+from google.adk.tools import AgentTool
+
+specialist_agent = LlmAgent(model=model_config, name="MathSpecialist", ...)
+root_agent = LlmAgent(
+    model=model_config,
+    name="Manager",
+    instruction="Delegate math problems to the MathSpecialist.",
+    tools=[AgentTool(specialist_agent)]
+)
+```
+
+### C. Review Loops (Iterative Refinement)
+Use `LoopAgent` to cycle between agents (e.g., Writer -> Critic) until a condition is met.
+
+```python
+from google.adk.agents import LoopAgent
+from google.adk.tools import FunctionTool
+
+# 1. Define Exit Condition Tool
+def exit_loop():
+    """Call this ONLY when the content is approved."""
+    return {"status": "approved"}
+
+# 2. Define Agents
+writer = LlmAgent(model=model_config, name="writer", output_key="draft", ...)
+critic = LlmAgent(
+    model=model_config, 
+    name="critic",
+    instruction="Review {draft}. If good, call exit_loop. If bad, provide feedback.",
+    tools=[FunctionTool(exit_loop)]
+)
+
+# 3. Define Loop
+review_loop = LoopAgent(
+    name="ReviewCycle",
+    sub_agents=[writer, critic],
+    max_iterations=3 # Safety limit
+)
+```
+
+## 4. Human-in-the-Loop (Long-Running Operations)
+This pattern pauses execution to wait for external input (validation) before proceeding.
+
+**Requirements:**
+1.  Wrap the agent in an `App` with `ResumabilityConfig`.
+2.  Use `tool_context.request_confirmation` inside a tool.
+3.  Orchestrate the workflow to detect the pause event.
+
+**The Tool (Approval Logic):**
+```python
+def deploy_code(env: str, tool_context: ToolContext) -> dict:
+    # 1. Check if we already have a decision
+    if tool_context.tool_confirmation:
+        if tool_context.tool_confirmation.confirmed:
+            return {"status": "deployed", "env": env}
+        else:
+            return {"status": "rejected"}
+
+    # 2. If no decision, pause and request it
+    tool_context.request_confirmation(
+        hint=f"Approve deployment to {env}?",
+        payload={"env": env}
+    )
+    return {"status": "pending_approval"}
+```
+
+**The Application Wrapper:**
+```python
+from google.adk.apps.app import App, ResumabilityConfig
+
+# Wrap agent in a Resumable App
+app = App(
+    name="deploy_app",
+    root_agent=deploy_agent,
+    resumability_config=ResumabilityConfig(is_resumable=True)
+)
+```
+
+**The Workflow (Handling the Pause):**
+```python
+async def run_workflow(runner, query):
+    events = []
+    # 1. Initial Run
+    async for event in runner.run_async(..., new_message=query):
+        events.append(event)
+
+    # 2. Check for Approval Request Event
+    approval_request = None
+    for event in events:
+        # Logic to find 'adk_request_confirmation' function call
+        if is_confirmation_request(event): 
+            approval_request = event
+            break
     
-    Context from previous steps:
-    {previous_agent_output_key}
+    # 3. Resume with Decision (if paused)
+    if approval_request:
+        # Create response object (User clicks 'Approve')
+        decision_msg = create_approval_response(
+            approval_id=approval_request.id, 
+            approved=True
+        )
+        
+        # RESUME execution passing the SAME invocation_id
+        async for event in runner.run_async(
+            ..., 
+            new_message=decision_msg, 
+            invocation_id=approval_request.invocation_id
+        ):
+            print(event.text)
+```
 
-    Rules:
-    1. [Rule 1]
-    2. [Rule 2]
-    """,
+## 5. Observability (Extracting & Storing Traces)
+Use `Plugins` to hook into the agent lifecycle for logging traces to files or monitoring systems.
 
-    # [OPTIONAL] List of Python functions or AgentTools
-    tools=[
-        # FunctionTool(my_python_func),
-        # AgentTool(sub_agent_instance)
-    ],
+**Built-in Logging:**
+```python
+from google.adk.plugins.logging_plugin import LoggingPlugin
 
-    # [OPTIONAL] Where to store the result in the session dictionary.
-    # If omitted, output is returned but not stored in shared state.
-    output_key="my_agent_result",
+runner = InMemoryRunner(
+    agent=my_agent,
+    plugins=[LoggingPlugin()] # Automatically logs prompts, tool calls, and traces
 )
-3. Workflow Types & Running Agents
-The ADK provides specific classes to run agents in different patterns.
-A. Sequential (Chain of Command)
-Use SequentialAgent when step B requires data from step A. The ADK passes the shared state automatically.
-code
-Python
-root = SequentialAgent(
-    name="Pipeline",
-    sub_agents=[researcher, summarizer, email_drafter]
-)
-B. Parallel (Simultaneous Execution)
-Use ParallelAgent for tasks that don't depend on each other. The ADK runs them concurrently and merges results.
-code
-Python
-team = ParallelAgent(
-    name="ResearchTeam",
-    sub_agents=[tech_researcher, market_researcher]
-)
-C. Loop (Iterative Refinement)
-Use LoopAgent for tasks requiring quality checks (Write -> Critique -> Refine).
-code
-Python
-loop = LoopAgent(
-    name="RefinementLoop",
-    sub_agents=[critic, refiner],
-    max_iterations=3
-)
-How to Run Your Agents
-Once your root agent is defined, you execute it by passing the initial user input (and optionally an initial state).
-Option 1: Simple Run (String Input)
-If your agent expects a direct prompt.
-code
-Python
-response = root_agent.run(input="Research the history of sourdough bread.")
-print(response.output)
-Option 2: Run with State (Structured Input)
-If your agent's instructions reference placeholders (e.g., {topic}), pass them in a dictionary. This dictionary becomes the initial Session State.
-code
-Python
-initial_state = {
-    "topic": "Quantum Computing",
-    "target_audience": "5th graders"
-}
+```
 
-# The agent executes, and the final state (containing all output_keys) is returned.
-final_state = root_agent.run(state=initial_state)
+**Custom Trace Extraction (Callback Pattern):**
+To programmatically extract traces/logs for storage:
 
-print(f"Final Summary: {final_state['executive_summary']}")
-print(f"Intermediate Research: {final_state['research_findings']}")
+```python
+from google.adk.plugins.base_plugin import BasePlugin
+from google.adk.agents.callback_context import CallbackContext
+
+class TraceExtractorPlugin(BasePlugin):
+    def __init__(self):
+        super().__init__(name="trace_extractor")
+
+    async def after_agent_callback(self, agent, callback_context: CallbackContext):
+        # Access the full session history
+        session = callback_context._invocation_context.session
+        
+        # Extract events (User input, LLM response, Tool calls)
+        for event in session.events:
+            print(f"Event: {event.content}")
+            
+        # Here you would write to a DB or File
+        # save_trace_to_db(session.events)
+
+runner = InMemoryRunner(agent=my_agent, plugins=[TraceExtractorPlugin()])
+```
+
+## 6. Session & Memory Management
+*   **Session:** Short-term, ephemeral (per conversation).
+*   **Memory:** Long-term, persistent (across conversations).
+
+**Persistence (Database):**
+```python
+from google.adk.sessions import DatabaseSessionService
+
+# Persists session state to SQLite (or other DBs)
+session_service = DatabaseSessionService(db_url="sqlite:///agent_data.db")
+
+runner = Runner(
+    agent=agent, 
+    session_service=session_service,
+    ...
+)
+```
+
+**Context Compaction (Summarization):**
+Prevents context window overflow by summarizing old turns.
+```python
+from google.adk.apps.app import EventsCompactionConfig
+
+app = App(
+    ...,
+    events_compaction_config=EventsCompactionConfig(
+        compaction_interval=3, # Summarize every 3 turns
+        overlap_size=1
+    )
+)
+```
+
+## 7. Agent2Agent (A2A) Protocol
+Used to communicate between agents running on different servers/frameworks.
+
+**Exposing an Agent:**
+```python
+from google.adk.a2a.utils.agent_to_a2a import to_a2a
+
+# Converts ADK agent to A2A compliant server app
+server_app = to_a2a(my_agent, port=8001)
+# Run with uvicorn...
+```
+
+**Consuming a Remote Agent:**
+```python
+from google.adk.agents.remote_a2a_agent import RemoteA2aAgent
+
+remote_tool = RemoteA2aAgent(
+    name="remote_service",
+    agent_card="http://localhost:8001/.well-known/agent-card.json"
+)
+
+local_agent = LlmAgent(
+    ...,
+    sub_agents=[remote_tool] # Use remote agent as a sub-agent
+)
+```

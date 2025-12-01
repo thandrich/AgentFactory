@@ -1,7 +1,7 @@
 import logging
 import json
 import os
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 import google.generativeai as genai
 
 # Configure logging
@@ -236,3 +236,135 @@ class SubprocessAgentRunner:
             finally:
                 self.process = None
                 logger.info("Stopped agent subprocess")
+
+
+# ============================================================================
+# ADK Resumability Helpers (for Human-in-the-Loop)
+# ============================================================================
+
+def create_resumable_app(agent, app_name: str = "resumable_agent"):
+    """
+    Wraps an agent in an App with ResumabilityConfig for Human-in-the-Loop support.
+    
+    Args:
+        agent: The ADK agent to wrap
+        app_name: Name for the app
+        
+    Returns:
+        App: Configured app with resumability enabled
+    """
+    from google.adk.apps.app import App, ResumabilityConfig
+    
+    return App(
+        name=app_name,
+        root_agent=agent,
+        resumability_config=ResumabilityConfig(is_resumable=True)
+    )
+
+
+def find_confirmation_request(events: List[Any]) -> Optional[Dict[str, Any]]:
+    """
+    Searches through ADK events to find a confirmation request event.
+    
+    This is used to detect when an agent has paused for human approval.
+    
+    Args:
+        events: List of events from runner execution
+        
+    Returns:
+        dict with confirmation request details, or None if not found
+    """
+    for event in events:
+        # Check if this is a function call event
+        if hasattr(event, 'content') and event.content:
+            if hasattr(event.content, 'parts') and event.content.parts:
+                for part in event.content.parts:
+                    # Look for adk_request_confirmation function call
+                    if hasattr(part, 'function_call'):
+                        func_call = part.function_call
+                        if func_call.name == 'adk_request_confirmation':
+                            # Extract the confirmation details
+                            return {
+                                'event_id': id(event),
+                                'function_call': func_call,
+                                'hint': func_call.args.get('hint', ''),
+                                'payload': func_call.args.get('payload', {})
+                            }
+    return None
+
+
+def create_approval_response(approved: bool, feedback: str = "") -> Dict[str, Any]:
+    """
+    Creates a properly formatted approval response message for ADK resumability.
+    
+    Args:
+        approved: Whether the user approved (True) or rejected (False)
+        feedback: Optional feedback message from the user
+        
+    Returns:
+        dict: Message object to pass to runner.run_async() for resuming
+    """
+    from google.genai import types
+    
+    # Create the confirmation response
+    return types.Content(
+        role='user',
+        parts=[
+            types.Part(
+                function_response=types.FunctionResponse(
+                    name='adk_request_confirmation',
+                    response={
+                        'confirmed': approved,
+                        'feedback': feedback
+                    }
+                )
+            )
+        ]
+    )
+
+
+def extract_blueprint_from_output(output: Any) -> Optional[Dict[str, Any]]:
+    """
+    Extracts and parses the JSON blueprint from agent output.
+    
+    Args:
+        output: Output from agent execution (could be dict, string, or other)
+        
+    Returns:
+        Parsed blueprint as dict, or None if extraction fails
+    """
+    import re
+    
+    # If it's already a dict with 'blueprint' key, return it
+    if isinstance(output, dict):
+        if 'blueprint' in output:
+            bp = output['blueprint']
+            if isinstance(bp, str):
+                try:
+                    return json.loads(bp)
+                except:
+                    pass
+            return bp
+        
+        # Maybe the whole dict IS the blueprint
+        if 'agents' in output and 'end_to_end_context' in output:
+            return output
+    
+    # If it's a string, try to extract JSON
+    if isinstance(output, str):
+        # Try to find JSON block
+        json_match = re.search(r'```json\s*(\{.*?\})\s*```', output, re.DOTALL)
+        if json_match:
+            try:
+                return json.loads(json_match.group(1))
+            except:
+                pass
+        
+        # Try parsing the whole string as JSON
+        try:
+            return json.loads(output)
+        except:
+            pass
+    
+    logger.warning("Could not extract blueprint from output")
+    return None
