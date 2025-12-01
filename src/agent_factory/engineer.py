@@ -170,3 +170,28 @@ class Engineer:
         except Exception as e:
             logger.error(f"Error generating code for {agent_name}: {e}")
             return f"# Error generating code: {e}"
+
+    def create_adk_agent(self, agent_definition: Dict[str, Any], context: str) -> LlmAgent:
+        """
+        Creates an ADK LlmAgent configured to build the specific agent.
+        This allows the Engineer to be used within a ParallelAgent.
+        """
+        agent_name = agent_definition.get('agent_name', 'Unknown_Agent')
+        
+        # specific instructions for this run
+        prompt = f"""
+        **CONTEXT (Full Workflow):**
+        {context}
+
+        **AGENT TO BUILD (Target):**
+        {json.dumps(agent_definition, indent=2)}
+
+        Research necessary libraries/APIs using Google Search, then generate the ADK Python code.
+        """
+        
+        return LlmAgent(
+            name=f"Engineer_{agent_name}",
+            model=self.model_config,
+            instruction=self.system_instruction + "\n\n" + prompt,
+            tools=[self.search_tool]
+        )

@@ -71,13 +71,39 @@ def render_chat_interface(agent_code, key_prefix, workspace_dir):
                 except Exception as e:
                     st.error(f"Error during chat: {e}")
 
-st.set_page_config(page_title="AgentFactory", layout="wide")
+st.set_page_config(
+    page_title="AgentFactory - Autonomous Agentic Workflow Creation",
+    page_icon="🏭",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-st.title("🏭 AgentFactory")
-st.markdown("### Collaborative Multi-Agent System for AI Agent Creation")
+# Load Custom CSS
+def load_css():
+    css_file = os.path.join(os.getcwd(), "style.css")
+    if os.path.exists(css_file):
+        with open(css_file) as f:
+            st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 
-# Configuration Section (Main Page for Width)
-with st.expander("⚙️ Configuration", expanded=True):
+load_css()
+
+# Display Logo and Title
+col1, col2 = st.columns([1, 5])
+with col1:
+    logo_path = os.path.join(os.getcwd(), "assets", "logo.jpg")
+    if os.path.exists(logo_path):
+        st.image(logo_path, width=300)
+    else:
+        st.write("🏭")
+
+with col2:
+    st.title("AGENTFACTORY")
+    st.caption("Autonomous Agentic Workflow Creation powered by Google Gemini & ADK")
+
+# Configuration Section (Sidebar)
+with st.sidebar:
+    st.header("⚙️ Configuration")
+    
     # Dynamic Model Selection
     if "available_models" not in st.session_state:
         with st.spinner("Fetching available models..."):
@@ -87,8 +113,6 @@ with st.expander("⚙️ Configuration", expanded=True):
     
     # Sort by Display Name (ASC) then Version (DESC)
     models.sort(key=lambda x: (x["display_name"], x.get("version", "")), reverse=False)
-    # To get Version DESC, we can't easily use a single lambda with mixed sort orders for strings.
-    # So let's sort by Version DESC first, then Display Name ASC (Python sort is stable)
     models.sort(key=lambda x: x.get("version", ""), reverse=True)
     models.sort(key=lambda x: x["display_name"])
     
@@ -113,34 +137,13 @@ with st.expander("⚙️ Configuration", expanded=True):
     selected_model_info = model_map[selected_option]
     selected_model_name = selected_model_info["name"]
     
-    # Comprehensive Details Display
-    st.markdown("---")
-    st.markdown(f"### {selected_model_info['display_name']}")
-    st.caption(selected_model_info.get('description'))
-    
-    # Row 1: Key Specs
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Version", selected_model_info.get('version'))
-    c2.metric("Type", selected_model_info.get('type'))
-    c3.metric("Input Limit", f"{selected_model_info.get('input_token_limit'):,}")
-    c4.metric("Output Limit", f"{selected_model_info.get('output_token_limit'):,}")
-    
-    # Row 2: Sampling Parameters & Capabilities
-    st.markdown("**Model Parameters & Capabilities**")
-    c1, c2 = st.columns(2)
-    
-    with c1:
-        st.write("🎛️ **Sampling Defaults**")
-        params = {
-            "Temperature": selected_model_info.get('temperature'),
-            "Max Temp": selected_model_info.get('max_temperature'),
-            "Top P": selected_model_info.get('top_p'),
-            "Top K": selected_model_info.get('top_k')
-        }
-        st.json({k: v for k, v in params.items() if v is not None})
+    # Model Details
+    with st.expander("Model Details", expanded=False):
+        st.caption(selected_model_info.get('description'))
+        st.metric("Input Limit", f"{selected_model_info.get('input_token_limit'):,}")
+        st.metric("Output Limit", f"{selected_model_info.get('output_token_limit'):,}")
         
-    with c2:
-        st.write("⚡ **Capabilities**")
+        st.markdown("**Capabilities**")
         methods = selected_model_info.get('supported_generation_methods', [])
         for method in methods:
             st.markdown(f"- `{method}`")
@@ -150,6 +153,8 @@ with st.expander("⚙️ Configuration", expanded=True):
     max_retries = st.slider("Max API Calls", 1, 50, 10)
 
 model_name = selected_model_name # Alias for compatibility
+
+st.markdown("---")
 
 # Tabs
 tab1, tab2 = st.tabs(["🚀 YOLO Mode", "🐞 Debug Mode"])
@@ -186,7 +191,6 @@ with tab2:
     st.markdown("Interactive step-by-step execution.")
     
     debug_goal = st.text_area("What agent do you want to build?", "Build a weather bot that can tell me the weather in London", key="debug_goal")
-    # debug_max_retries removed, using global max_retries
     
     # State Management
     if "debug_state" not in st.session_state:
@@ -204,7 +208,7 @@ with tab2:
 
     # Start Button
     if st.session_state.debug_state == "IDLE":
-        if st.button("Start Debug Session"):
+        if st.button("Start Debug Session", type="primary"):
             factory = AgentFactory(model_name=model_name)
             workspace_dir, logger = factory.prepare_workspace(debug_goal)
             st.session_state.workspace_dir = workspace_dir
@@ -221,184 +225,192 @@ with tab2:
             add_log(f"Initialized workspace: {workspace_dir}")
             st.rerun()
 
-    # Display Logs
-    with st.expander("Execution Logs", expanded=True):
-        for log in st.session_state.logs:
-            st.text(log)
+    # Display Logs (Collapsed by default to save space)
+    if st.session_state.logs:
+        with st.expander("Execution Logs", expanded=False):
+            for log in st.session_state.logs:
+                st.text(log)
 
-    # State Machine
-    if st.session_state.debug_state == "ARCHITECT_READY":
-        st.info("Step 1: Architect")
-        st.write("Ready to design the agent blueprint.")
-        
-        col1, col2 = st.columns(2)
-        if col1.button("▶️ Run Architect"):
-            factory = AgentFactory(model_name=model_name)
-            # Re-setup logging
-            factory.prepare_workspace(debug_goal) 
-            
-            with st.spinner("Architect is thinking..."):
-                # Use new design_workflow method
-                available_models = [m["name"] for m in st.session_state.available_models]
-                feedback = st.session_state.get("architect_feedback", None)
-                blueprint = factory.architect.design_workflow(debug_goal, available_models, feedback=feedback)
-                st.session_state.blueprint = blueprint
-                add_log(f"Architect - {model_name}: Generated blueprint.")
-                st.session_state.debug_state = "ARCHITECT_DONE"
-                st.rerun()
+    # State Machine Container
+    if st.session_state.debug_state != "IDLE":
+        with st.container(border=True):
+            # Architect Phase
+            if st.session_state.debug_state == "ARCHITECT_READY":
+                st.info("Step 1: Architect")
+                st.write("Ready to design the agent blueprint.")
                 
-        if col2.button("⏹️ Abort"):
-            st.session_state.debug_state = "IDLE"
-            st.rerun()
+                col1, col2 = st.columns([1, 5])
+                with col1:
+                    if st.button("▶️ Run Architect"):
+                        factory = AgentFactory(model_name=model_name)
+                        factory.prepare_workspace(debug_goal) 
+                        
+                        with st.spinner("Architect is thinking..."):
+                            available_models = [m["name"] for m in st.session_state.available_models]
+                            feedback = st.session_state.get("architect_feedback", None)
+                            blueprint = factory.architect.design_workflow(debug_goal, available_models, feedback=feedback)
+                            st.session_state.blueprint = blueprint
+                            add_log(f"Architect - {model_name}: Generated blueprint.")
+                            st.session_state.debug_state = "ARCHITECT_DONE"
+                            st.rerun()
+                with col2:
+                    if st.button("⏹️ Abort", type="secondary"):
+                        st.session_state.debug_state = "IDLE"
+                        st.rerun()
 
-    elif st.session_state.debug_state == "ARCHITECT_DONE":
-        st.success("Architect Complete")
-        
-        # Display Flowchart
-        if os.path.exists("workflow_blueprint.png"):
-            st.image("workflow_blueprint.png", caption="Workflow Blueprint")
-            
-        st.json(st.session_state.blueprint)
-        
-        # Feedback UI
-        st.markdown("### Refine Design")
-        feedback_input = st.text_area("Feedback", key="architect_feedback_input")
-        
-        col1, col2, col3 = st.columns(3)
-        if col1.button("🔄 Refine Design"):
-            if not feedback_input.strip():
-                st.warning("Please enter feedback before refining.")
-            else:
-                with st.spinner("Refining design..."):
-                    factory = AgentFactory(model_name=model_name)
-                    factory.prepare_workspace(debug_goal)
-                    available_models = [m["name"] for m in st.session_state.available_models]
-                    blueprint = factory.architect.design_workflow(
-                        debug_goal, 
-                        available_models, 
-                        feedback=feedback_input
-                    )
-                    st.session_state.blueprint = blueprint
-                    add_log(f"Architect - {model_name}: Refined blueprint based on feedback.")
-                    st.rerun()  # Stay in ARCHITECT_DONE state
-            
-        if col2.button("Continue to Engineer"):
-            # Validate blueprint before proceeding
-            if "agents" not in st.session_state.blueprint:
-                st.error("❌ Invalid blueprint - no agents defined! Please refine the design.")
-            elif not st.session_state.blueprint.get("agents"):
-                st.error("❌ Blueprint has empty agents list! Please refine the design.")
-            else:
-                st.session_state.debug_state = "ENGINEER_READY"
-                st.session_state.attempt = 1
-                st.rerun()
-        if col3.button("⏹️ Abort"):
-            st.session_state.debug_state = "IDLE"
-            st.rerun()
-
-    elif st.session_state.debug_state == "ENGINEER_READY":
-        st.info(f"Step 2: Engineer (Attempt {st.session_state.attempt})")
-        st.write("Ready to generate code.")
-        if st.session_state.feedback:
-            st.warning(f"Addressing Feedback: {st.session_state.feedback}")
-            
-        col1, col2 = st.columns(2)
-        if col1.button("▶️ Run Engineer"):
-            factory = AgentFactory(model_name=model_name)
-            factory.prepare_workspace(debug_goal)
-            
-            with st.spinner("Engineer is coding..."):
-                # Pick the first agent for debug mode simplicity
-                agents = st.session_state.blueprint.get("agents", [])
-                if not agents:
-                    st.error("No agents found in blueprint!")
-                    st.stop()
+            elif st.session_state.debug_state == "ARCHITECT_DONE":
+                st.success("Architect Complete")
+                
+                # Display Flowchart
+                if os.path.exists("workflow_blueprint.png"):
+                    st.image("workflow_blueprint.png", caption="Workflow Blueprint")
                     
-                target_agent = agents[0]
-                context = st.session_state.blueprint.get("end_to_end_context", "")
+                with st.expander("View Blueprint JSON"):
+                    st.json(st.session_state.blueprint)
                 
-                # Engineer now takes agent_def and context
-                code = factory.engineer.build_agent(target_agent, context)
+                # Feedback UI
+                st.markdown("### Refine Design")
+                feedback_input = st.text_area("Feedback", key="architect_feedback_input")
                 
-                st.session_state.code = code
-                add_log(f"Engineer - {model_name}: Generated code for {target_agent.get('agent_name')} (Attempt {st.session_state.attempt})")
-                st.session_state.debug_state = "ENGINEER_DONE"
-                st.rerun()
-                
-        if col2.button("⏹️ Abort"):
-            st.session_state.debug_state = "IDLE"
-            st.rerun()
+                c1, c2, c3 = st.columns([1, 1, 4])
+                with c1:
+                    if st.button("🔄 Refine"):
+                        if not feedback_input.strip():
+                            st.warning("Please enter feedback before refining.")
+                        else:
+                            with st.spinner("Refining design..."):
+                                factory = AgentFactory(model_name=model_name)
+                                factory.prepare_workspace(debug_goal)
+                                available_models = [m["name"] for m in st.session_state.available_models]
+                                blueprint = factory.architect.design_workflow(
+                                    debug_goal, 
+                                    available_models, 
+                                    feedback=feedback_input
+                                )
+                                st.session_state.blueprint = blueprint
+                                add_log(f"Architect - {model_name}: Refined blueprint based on feedback.")
+                                st.rerun()
+                with c2:
+                    if st.button("Continue ➡️", type="primary"):
+                        if "agents" not in st.session_state.blueprint or not st.session_state.blueprint.get("agents"):
+                            st.error("❌ Invalid blueprint - no agents defined!")
+                        else:
+                            st.session_state.debug_state = "ENGINEER_READY"
+                            st.session_state.attempt = 1
+                            st.rerun()
+                with c3:
+                    if st.button("⏹️ Abort", type="secondary"):
+                        st.session_state.debug_state = "IDLE"
+                        st.rerun()
 
-    elif st.session_state.debug_state == "ENGINEER_DONE":
-        st.success("Engineer Complete")
-        st.code(st.session_state.code, language="python")
-        
-        col1, col2 = st.columns(2)
-        if col1.button("Continue to Auditor"):
-            st.session_state.debug_state = "AUDITOR_READY"
-            st.rerun()
-        if col2.button("⏹️ Abort"):
-            st.session_state.debug_state = "IDLE"
-            st.rerun()
+            # Engineer Phase
+            elif st.session_state.debug_state == "ENGINEER_READY":
+                st.info(f"Step 2: Engineer (Attempt {st.session_state.attempt})")
+                st.write("Ready to generate code.")
+                if st.session_state.feedback:
+                    st.warning(f"Addressing Feedback: {st.session_state.feedback}")
+                    
+                col1, col2 = st.columns([1, 5])
+                with col1:
+                    if st.button("▶️ Run Engineer"):
+                        factory = AgentFactory(model_name=model_name)
+                        factory.prepare_workspace(debug_goal)
+                        
+                        with st.spinner("Engineer is coding..."):
+                            agents = st.session_state.blueprint.get("agents", [])
+                            if not agents:
+                                st.error("No agents found in blueprint!")
+                                st.stop()
+                                
+                            target_agent = agents[0]
+                            context = st.session_state.blueprint.get("end_to_end_context", "")
+                            
+                            code = factory.engineer.build_agent(target_agent, context)
+                            
+                            st.session_state.code = code
+                            add_log(f"Engineer - {model_name}: Generated code for {target_agent.get('agent_name')} (Attempt {st.session_state.attempt})")
+                            st.session_state.debug_state = "ENGINEER_DONE"
+                            st.rerun()
+                with col2:
+                    if st.button("⏹️ Abort", type="secondary"):
+                        st.session_state.debug_state = "IDLE"
+                        st.rerun()
 
-    elif st.session_state.debug_state == "AUDITOR_READY":
-        st.info(f"Step 3: Auditor (Attempt {st.session_state.attempt})")
-        st.write("Ready to review code.")
-        
-        col1, col2 = st.columns(2)
-        if col1.button("▶️ Run Auditor"):
-            factory = AgentFactory(model_name=model_name)
-            factory.prepare_workspace(debug_goal)
-            
-            with st.spinner("Auditor is reviewing..."):
-                agents = st.session_state.blueprint.get("agents", [])
-                target_agent = agents[0]
+            elif st.session_state.debug_state == "ENGINEER_DONE":
+                st.success("Engineer Complete")
+                with st.expander("View Generated Code"):
+                    st.code(st.session_state.code, language="python")
                 
-                # Auditor now takes code and agent_def
-                result = factory.auditor.review_agent(st.session_state.code, target_agent)
-                add_log(f"Auditor - {model_name}: Review complete: {result}")
+                col1, col2 = st.columns([1, 5])
+                with col1:
+                    if st.button("Continue to Auditor ➡️", type="primary"):
+                        st.session_state.debug_state = "AUDITOR_READY"
+                        st.rerun()
+                with col2:
+                    if st.button("⏹️ Abort", type="secondary"):
+                        st.session_state.debug_state = "IDLE"
+                        st.rerun()
+
+            # Auditor Phase
+            elif st.session_state.debug_state == "AUDITOR_READY":
+                st.info(f"Step 3: Auditor (Attempt {st.session_state.attempt})")
+                st.write("Ready to review code.")
                 
-                if result["status"] == "PASS":
-                    st.session_state.debug_state = "SUCCESS"
-                    # Save
-                    factory.save_agent(st.session_state.code, st.session_state.workspace_dir)
-                else:
-                    st.session_state.feedback = result.get("feedback") or result.get("reasoning")
-                    if st.session_state.attempt < max_retries:
-                        st.session_state.debug_state = "RETRY_NEEDED"
-                    else:
-                        st.session_state.debug_state = "FAILED"
-                st.rerun()
+                col1, col2 = st.columns([1, 5])
+                with col1:
+                    if st.button("▶️ Run Auditor"):
+                        factory = AgentFactory(model_name=model_name)
+                        factory.prepare_workspace(debug_goal)
+                        
+                        with st.spinner("Auditor is reviewing..."):
+                            agents = st.session_state.blueprint.get("agents", [])
+                            target_agent = agents[0]
+                            
+                            result = factory.auditor.review_agent(st.session_state.code, target_agent)
+                            add_log(f"Auditor - {model_name}: Review complete: {result}")
+                            
+                            if result["status"] == "PASS":
+                                st.session_state.debug_state = "SUCCESS"
+                                factory.save_agent(st.session_state.code, st.session_state.workspace_dir)
+                            else:
+                                st.session_state.feedback = result.get("feedback") or result.get("reasoning")
+                                if st.session_state.attempt < max_retries:
+                                    st.session_state.debug_state = "RETRY_NEEDED"
+                                else:
+                                    st.session_state.debug_state = "FAILED"
+                            st.rerun()
+                with col2:
+                    if st.button("⏹️ Abort", type="secondary"):
+                        st.session_state.debug_state = "IDLE"
+                        st.rerun()
+
+            elif st.session_state.debug_state == "RETRY_NEEDED":
+                st.warning("Auditor Rejected Code")
+                st.json(st.session_state.feedback)
                 
-        if col2.button("⏹️ Abort"):
-            st.session_state.debug_state = "IDLE"
-            st.rerun()
+                col1, col2 = st.columns([1, 5])
+                with col1:
+                    if st.button("🔄 Retry (Back to Engineer)"):
+                        st.session_state.attempt += 1
+                        st.session_state.debug_state = "ENGINEER_READY"
+                        st.rerun()
+                with col2:
+                    if st.button("⏹️ Abort", type="secondary"):
+                        st.session_state.debug_state = "IDLE"
+                        st.rerun()
 
-    elif st.session_state.debug_state == "RETRY_NEEDED":
-        st.warning("Auditor Rejected Code")
-        st.json(st.session_state.feedback)
-        
-        col1, col2 = st.columns(2)
-        if col1.button("🔄 Retry (Back to Engineer)"):
-            st.session_state.attempt += 1
-            st.session_state.debug_state = "ENGINEER_READY"
-            st.rerun()
-        if col2.button("⏹️ Abort"):
-            st.session_state.debug_state = "IDLE"
-            st.rerun()
+            elif st.session_state.debug_state == "SUCCESS":
+                st.success("🎉 Agent Created Successfully!")
+                st.write(f"Saved to: {st.session_state.workspace_dir}")
+                
+                render_chat_interface(st.session_state.code, "debug", st.session_state.workspace_dir)
+                
+                if st.button("Start Over", type="secondary"):
+                    st.session_state.debug_state = "IDLE"
+                    st.rerun()
 
-    elif st.session_state.debug_state == "SUCCESS":
-        st.success("🎉 Agent Created Successfully!")
-        st.write(f"Saved to: {st.session_state.workspace_dir}")
-        
-        render_chat_interface(st.session_state.code, "debug", st.session_state.workspace_dir)
-        
-        if st.button("Start Over"):
-            st.session_state.debug_state = "IDLE"
-            st.rerun()
-
-    elif st.session_state.debug_state == "FAILED":
-        st.error("❌ Agent Creation Failed (Max Retries Reached)")
-        if st.button("Start Over"):
-            st.session_state.debug_state = "IDLE"
-            st.rerun()
+            elif st.session_state.debug_state == "FAILED":
+                st.error("❌ Agent Creation Failed (Max Retries Reached)")
+                if st.button("Start Over", type="secondary"):
+                    st.session_state.debug_state = "IDLE"
+                    st.rerun()

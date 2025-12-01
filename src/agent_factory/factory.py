@@ -5,6 +5,8 @@ from .architect import Architect
 from .engineer import Engineer
 from .auditor import Auditor
 from .utils import setup_logging
+from google.adk.agents import ParallelAgent, SequentialAgent
+from google.adk.runners import InMemoryRunner
 
 logger = setup_logging("Factory")
 
@@ -59,8 +61,6 @@ class AgentFactory:
         try:
             # Step 1: Architect
             notify_debug("Architect: Start", {"goal": goal})
-            # We pass a dummy model list for now, or fetch from utils if possible. 
-            # Ideally this should come from app.py or config.
             available_models = ["gemini-2.5-flash", "gemini-1.5-pro"] 
             blueprint = self.architect.design_workflow(goal, available_models)
             notify_debug("Architect: End", blueprint)
@@ -74,63 +74,97 @@ class AgentFactory:
             agents_to_build = blueprint.get("agents", [])
             context = blueprint.get("end_to_end_context", "")
             
-            last_code = None
-            
-            # Step 2 & 3: Engineer & Auditor Loop for EACH agent
+            # Step 2: Create Engineer Agents (Parallel)
+            engineer_agents = []
             for agent_def in agents_to_build:
-                agent_name = agent_def.get("agent_name", "Unknown")
-                logger.info(f"Building agent: {agent_name}")
-                
-                current_code = None
-                feedback = None
-                success = False
-                
-                for attempt in range(max_retries + 1):
-                    logger.info(f"Attempt {attempt + 1}/{max_retries + 1} for {agent_name}")
-                    
-                    # Engineer
-                    notify_debug(f"Engineer: Start ({agent_name} - Attempt {attempt+1})", {"agent_def": agent_def})
-                    # Engineer now takes agent_def and context
-                    current_code = self.engineer.build_agent(agent_def, context)
-                    notify_debug(f"Engineer: End ({agent_name} - Attempt {attempt+1})", {"code": current_code})
-                        
-                    # Auditor
-                    notify_debug(f"Auditor: Start ({agent_name} - Attempt {attempt+1})", {"code": current_code})
-                    # Auditor now takes code and agent_def
-                    review_result = self.auditor.review_agent(current_code, agent_def)
-                    notify_debug(f"Auditor: End ({agent_name} - Attempt {attempt+1})", review_result)
-                    
-                    if review_result["status"] == "PASS":
-                        logger.info(f"Auditor approved {agent_name}!")
-                        
-                        # Save code to workspace with agent name
-                        file_path = os.path.join(workspace_dir, f"{agent_name}.py")
-                        with open(file_path, "w") as f:
-                            f.write(current_code)
-                        logger.info(f"Agent code saved to: {file_path}")
-                        
-                        last_code = current_code
-                        success = True
-                        break
-                    else:
-                        # Feedback is implicitly handled by Engineer re-generating based on prompt?
-                        # The current Engineer implementation in Step 1141 does NOT take feedback explicitly.
-                        # It just takes agent_def and context.
-                        # To support retry with feedback, we'd need to update Engineer again or 
-                        # append feedback to the context/agent_def for the next iteration.
-                        # For now, we just retry, hoping the stochastic nature fixes it, 
-                        # or we can append feedback to the context.
-                        logger.warning(f"Auditor rejected {agent_name}. Reason: {review_result.get('reasoning')}")
-                        # Append feedback to context for next attempt (hacky but works with current Engineer)
-                        context += f"\n\n[Previous Attempt Feedback for {agent_name}]: {review_result.get('feedback')}"
-                
-                if not success:
-                    logger.error(f"Failed to build agent: {agent_name}")
-                    return None, None
-
-            # Return the last agent's code for the UI to display/run (simplification)
-            return last_code, blueprint
+                eng_agent = self.engineer.create_adk_agent(agent_def, context)
+                engineer_agents.append(eng_agent)
             
+            parallel_engineers = ParallelAgent(
+                name="EngineeringTeam",
+                sub_agents=engineer_agents
+            )
+            
+            # Step 3: Create Auditor Agent
+            auditor_agent = self.auditor.create_adk_agent()
+            
+            # Step 4: Sequential Flow (Engineers -> Auditor)
+            root_agent = SequentialAgent(
+                name="FactoryFlow",
+                sub_agents=[parallel_engineers, auditor_agent]
+            )
+            
+            runner = InMemoryRunner(agent=root_agent)
+            
+            notify_debug("Factory: Start Parallel Execution", {"agents": [a.name for a in engineer_agents]})
+            
+            async def _run_flow():
+                return await runner.run_debug(f"Start building agents for goal: {goal}")
+
+            # Execute the flow
+            events = asyncio.run(_run_flow())
+            
+            # Extract results
+            # We need to find the code generated by engineers and the review from the auditor
+            
+            engineer_outputs = {}
+            auditor_review = None
+            
+            print(f"DEBUG: Total events: {len(events)}")
+            for event in events:
+                print(f"DEBUG: Event source: {getattr(event, 'source', 'NoSource')} Type: {type(event)}")
+                if hasattr(event, 'source') and event.source.startswith("Engineer_"):
+                    # This is an output from an engineer
+                    if hasattr(event, 'content') and event.content and event.content.parts:
+                        for part in event.content.parts:
+                            if part.text:
+                                engineer_outputs[event.source] = part.text
+                                
+                if hasattr(event, 'source') and event.source == "Auditor":
+                     if hasattr(event, 'content') and event.content and event.content.parts:
+                        for part in event.content.parts:
+                            if part.text:
+                                try:
+                                    # Clean json
+                                    text = part.text.strip()
+                                    if text.startswith("```json"): text = text[7:-3]
+                                    elif text.startswith("```"): text = text[3:-3]
+                                    auditor_review = json.loads(text)
+                                except:
+                                    pass
+            
+            print(f"DEBUG: Engineer outputs: {engineer_outputs.keys()}")
+            print(f"DEBUG: Auditor review: {auditor_review}")
+
+            notify_debug("Factory: Execution Complete", {"engineer_outputs": list(engineer_outputs.keys()), "review": auditor_review})
+
+            if auditor_review and auditor_review.get("approved"):
+                logger.info("Auditor approved the build!")
+                
+                # Save all files
+                saved_files = []
+                for agent_name, code in engineer_outputs.items():
+                    # agent_name is "Engineer_ActualName"
+                    real_name = agent_name.replace("Engineer_", "")
+                    file_path = os.path.join(workspace_dir, f"{real_name}.py")
+                    
+                    # Clean code blocks if present (Engineer might output them)
+                    clean_code = code.strip()
+                    if clean_code.startswith("```python"): clean_code = clean_code[9:-3]
+                    elif clean_code.startswith("```"): clean_code = clean_code[3:-3]
+                    
+                    with open(file_path, "w") as f:
+                        f.write(clean_code)
+                    saved_files.append(file_path)
+                    
+                return saved_files[-1] if saved_files else None, blueprint
+            else:
+                logger.warning(f"Auditor rejected the build. Issues: {auditor_review.get('issues') if auditor_review else 'Unknown'}")
+                return None, None
+
         except InterruptedError:
             logger.info("Process stopped by user.")
+            return None, None
+        except Exception as e:
+            logger.error(f"Factory execution error: {e}")
             return None, None

@@ -1,0 +1,334 @@
+/* Modern AgentFactory Styling */
+:root {
+    --primary-bg: #0a0e1a;
+    --secondary-bg: #111829;
+    --card-bg: #1a1f35;
+    --accent-cyan: #00d4ff;
+    --accent-blue: #4a9eff;
+    --text-primary: #e5e7f0;
+    --text-secondary: #a0a8c5;
+    --border-color: rgba(74, 158, 255, 0.2);
+    --glow-color: rgba(0, 212, 255, 0.4);
+    --success-green: #00ff9f;
+    --warning-yellow: #ffd600;
+    --error-red: #ff4d6d;
+}
+
+/* Global Styles */
+.stApp {
+    background: linear-gradient(135deg, var(--primary-bg) 0%, var(--secondary-bg) 100%);
+    color: var(--text-primary);
+}
+
+/* Sidebar Styling */
+[data-testid="stSidebar"] {
+    background-color: var(--secondary-bg);
+    border-right: 1px solid var(--border-color);
+}
+
+[data-testid="stSidebar"] .stMarkdown h1,
+[data-testid="stSidebar"] .stMarkdown h2,
+[data-testid="stSidebar"] .stMarkdown h3 {
+    color: var(--accent-cyan) !important;
+}
+
+/* Hide Streamlit Branding */
+#MainMenu {
+    visibility: hidden;
+}
+
+footer {
+    visibility: hidden;
+}
+
+header {
+    visibility: hidden;
+}
+
+/* Main Title */
+h1 {
+
+    /* Expander Header */
+    .stExpander summary {
+        font-size: 1.1rem !important;
+        font-weight: 600 !important;
+        color: var(--accent-cyan) !important;
+        padding: 0.5rem 1rem !important;
+    }
+
+    /* Buttons */
+    .stButton button {
+        background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan));
+        color: white;
+        border: none;
+        border-radius: 8px;
+        padding: 0.6rem 1.5rem;
+        font-weight: 600;
+        font-size: 0.95rem;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 15px rgba(74, 158, 255, 0.3);
+        cursor: pointer;
+        width: 100%;
+        /* Full width buttons in columns */
+    }
+
+    .stButton button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 25px var(--glow-color);
+    }
+
+    .stButton button:active {
+        transform: translateY(0);
+    }
+
+    /* Secondary Buttons */
+    .stButton button[kind="secondary"] {
+        background: transparent;
+        border: 2px solid var(--accent-cyan);
+        color: var(--accent-cyan);
+        box-shadow: none;
+    }
+
+    .stButton button[kind="secondary"]:hover {
+        background: var(--accent-cyan);
+        color: var(--primary-bg);
+        box-shadow: 0 0 15px var(--glow-color);
+    }
+
+    /* Tabs */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 1rem;
+        background: transparent;
+        border-bottom: 2px solid var(--border-color);
+        margin-bottom: 1rem;
+    }
+
+    .stTabs [data-baseweb="tab"] {
+        background: transparent;
+        color: var(--text-secondary);
+        border: none;
+        font-size: 1rem;
+        font-weight: 600;
+        padding: 0.5rem 1rem;
+        transition: all 0.3s ease;
+    }
+
+    .stTabs [data-baseweb="tab"]:hover {
+        color: var(--accent-cyan);
+    }
+
+    .stTabs [data-baseweb="tab"][aria-selected="true"] {
+        color: var(--accent-cyan);
+        border-bottom: 3px solid var(--accent-cyan);
+        background: transparent;
+    }
+
+    /* Input Fields */
+    .stTextInput input,
+    .stTextArea textarea,
+    .stSelectbox select {
+        background: var(--secondary-bg) !important;
+        border: 1px solid var(--border-color) !important;
+        border-radius: 8px !important;
+        color: var(--text-primary) !important;
+        font-size: 0.95rem !important;
+        padding: 0.6rem !important;
+        transition: all 0.3s ease;
+    }
+
+    .stTextInput input:focus,
+    .stTextArea textarea:focus,
+    .stSelectbox select:focus {
+        border-color: var(--accent-cyan) !important;
+        box-shadow: 0 0 15px var(--glow-color) !important;
+        outline: none !important;
+    }
+
+    /* Metrics */
+    .stMetric {
+        background: var(--secondary-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        padding: 0.8rem;
+        text-align: center;
+        transition: all 0.3s ease;
+    }
+
+    .stMetric:hover {
+        border-color: var(--accent-cyan);
+        transform: translateY(-2px);
+    }
+
+    .stMetric label {
+        color: var(--text-secondary) !important;
+        font-size: 0.8rem !important;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+    }
+
+    .stMetric [data-testid="stMetricValue"] {
+        color: var(--accent-cyan) !important;
+        font-size: 1.3rem !important;
+        font-weight: 700 !important;
+    }
+
+    /* Status Messages */
+    .stSuccess,
+    .stInfo,
+    .stWarning,
+    .stError {
+        border-radius: 8px;
+        border-left: 4px solid;
+        padding: 0.8rem;
+        margin: 0.5rem 0;
+    }
+
+    .stSuccess {
+        background: rgba(0, 255, 159, 0.1);
+        border-color: var(--success-green);
+        color: var(--success-green);
+    }
+
+    .stInfo {
+        background: rgba(74, 158, 255, 0.1);
+        border-color: var(--accent-blue);
+        color: var(--accent-blue);
+    }
+
+    .stWarning {
+        background: rgba(255, 214, 0, 0.1);
+        border-color: var(--warning-yellow);
+        color: var(--warning-yellow);
+    }
+
+    .stError {
+        background: rgba(255, 77, 109, 0.1);
+        border-color: var(--error-red);
+        color: var(--error-red);
+    }
+
+    /* Code Blocks */
+    .stCodeBlock,
+    pre {
+        background: var(--secondary-bg) !important;
+        border: 1px solid var(--border-color) !important;
+        border-radius: 8px !important;
+        padding: 1rem !important;
+        font-family: 'Fira Code', 'Courier New', monospace !important;
+    }
+
+    /* JSON Display */
+    .stJson {
+        background: var(--secondary-bg) !important;
+        border: 1px solid var(--border-color) !important;
+        border-radius: 8px !important;
+        padding: 1rem !important;
+    }
+
+    /* Slider */
+    .stSlider [data-baseweb="slider"] {
+        padding: 0 1rem;
+    }
+
+    .stSlider [role="slider"] {
+        background: var(--accent-cyan);
+        box-shadow: 0 0 10px var(--glow-color);
+    }
+
+    .stSlider [data-baseweb="slider-track"] {
+        background: var(--border-color);
+    }
+
+    /* Chat Messages */
+    .stChatMessage {
+        background: var(--card-bg);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 1rem;
+        margin: 0.5rem 0;
+    }
+
+    .stChatMessage[data-testid="user-message"] {
+        background: rgba(74, 158, 255, 0.1);
+        border-color: var(--accent-blue);
+    }
+
+    .stChatMessage[data-testid="assistant-message"] {
+        background: rgba(0, 212, 255, 0.1);
+        border-color: var(--accent-cyan);
+    }
+
+    /* Spinner */
+    .stSpinner>div {
+        border-top-color: var(--accent-cyan) !important;
+    }
+
+    /* Headers */
+    h2 {
+        color: var(--accent-cyan);
+        font-weight: 600;
+        margin: 1rem 0 0.5rem 0;
+        font-size: 1.5rem !important;
+    }
+
+    h4,
+    h5,
+    h6 {
+        color: var(--text-primary);
+    }
+
+    /* Links */
+    a {
+        color: var(--accent-cyan);
+        text-decoration: none;
+        transition: all 0.3s ease;
+    }
+
+    a:hover {
+        color: var(--accent-blue);
+        text-shadow: 0 0 10px var(--glow-color);
+    }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+    }
+
+    ::-webkit-scrollbar-track {
+        background: var(--secondary-bg);
+    }
+
+    ::-webkit-scrollbar-thumb {
+        background: var(--accent-blue);
+        border-radius: 4px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+        background: var(--accent-cyan);
+    }
+
+    /* Animations */
+    @keyframes glow {
+
+        0%,
+        100% {
+            box-shadow: 0 0 20px var(--glow-color);
+        }
+
+        50% {
+            box-shadow: 0 0 40px var(--glow-color);
+        }
+    }
+
+    .pulse-glow {
+        animation: glow 2s infinite;
+    }
+
+    /* Image Container */
+    .stImage {
+        border-radius: 12px;
+        overflow: hidden;
+        border: 1px solid var(--border-color);
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    }
