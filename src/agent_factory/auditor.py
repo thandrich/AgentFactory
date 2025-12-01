@@ -7,7 +7,7 @@ logger = logging.getLogger("Auditor")
 # 1. Define Model Config
 model_config = Gemini(
     model="gemini-2.5-flash",
-    retry_options={"max_retries": 3}
+    retry_options={"attempts": 3}
 )
 
 # 2. Define the Agent

@@ -1,13 +1,12 @@
-```python
 import logging
 import json
 from typing import Dict, Any
-from adk.core import Agent
-from adk.models import Gemini
+from google.adk.agents import Agent
+from google.adk.models.google_llm import Gemini
 try:
-    from adk.tools import google_search
+    from google.adk.tools import google_search
 except ImportError:
-    # Fallback or placeholder if adk.tools.google_search is not found
+    # Fallback or placeholder if google.adk.tools.google_search is not found
     # Assuming the user has it or we can pass a dummy
     def google_search(query: str):
         """Searches Google for the query."""
@@ -18,48 +17,7 @@ logger = logging.getLogger("Engineer")
 # 1. Define Model Config
 model_config = Gemini(
     model="gemini-2.5-flash",
-    retry_options={"max_retries": 3}
-)
-
-def create_engineer_agent(agent_definition: Dict[str, Any], context: str) -> Agent:
-    """
-    Creates an Engineer agent configured to build a specific component.
-    
-    Args:
-        agent_definition: The blueprint definition for this agent.
-        context: The full workflow context.
-    """
-    agent_name = agent_definition.get('agent_name', 'Unknown_Agent')
-    
-    instruction = f"""
-    You are The Engineer, a senior Python developer.
-    
-    **YOUR MISSION:**
-    Build the agent described below using the Google ADK.
-    
-    **CONTEXT:**
-    {context}
-    
-import logging
-import json
-from typing import Dict, Any
-from adk.core import Agent
-from adk.models import Gemini
-try:
-    from adk.tools import google_search
-except ImportError:
-    # Fallback or placeholder if adk.tools.google_search is not found
-    # Assuming the user has it or we can pass a dummy
-    def google_search(query: str):
-        """Searches Google for the query."""
-        return f"Mock search result for {query}"
-
-logger = logging.getLogger("Engineer")
-
-# 1. Define Model Config
-model_config = Gemini(
-    model="gemini-2.5-flash",
-    retry_options={"max_retries": 3}
+    retry_options={"attempts": 3}
 )
 
 def create_engineer_agent(agent_definition: Dict[str, Any], context: str) -> Agent:
