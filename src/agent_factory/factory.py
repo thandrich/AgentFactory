@@ -2,8 +2,8 @@ import os
 import json
 import logging
 from typing import Optional, Dict, Any
-from adk.core import ParallelAgent, LoopAgent, SequentialAgent
-from adk.runners import InMemoryRunner
+from google.adk.agents import ParallelAgent, LoopAgent, SequentialAgent
+from google.adk.runners import InMemoryRunner
 from .architect import architect
 from .engineer import create_engineer_agent
 from .auditor import auditor

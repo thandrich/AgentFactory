@@ -1,18 +1,3 @@
-import logging
-import os
-from typing import List, Dict
-from graphviz import Digraph
-from adk.core import Agent
-from adk.models import Gemini
-
-# Configure logging
-logger = logging.getLogger("Architect")
-logging.basicConfig(level=logging.INFO)
-
-# 1. Define Model Config
-model_config = Gemini(
-    model="gemini-2.5-flash",
-    retry_options={"max_retries": 3}
 )
 
 # 2. Define Tools

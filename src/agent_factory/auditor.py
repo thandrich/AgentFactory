@@ -1,6 +1,6 @@
 import logging
-from adk.core import Agent
-from adk.models import Gemini
+from google.adk.agents import Agent
+from google.adk.models.google_llm import Gemini
 
 logger = logging.getLogger("Auditor")
 
